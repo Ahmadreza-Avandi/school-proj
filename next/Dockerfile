@@ -34,6 +34,9 @@ COPY --from=builder /usr/src/app/public ./public
 COPY --from=builder /usr/src/app/.next ./.next
 COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/package.json ./package.json
+# کپی کردن فایل سرور.ts
+COPY --from=builder /usr/src/app/server.ts ./server.ts
+COPY --from=builder /usr/src/app/server.js ./server.js
 
 # کپی فایل‌های محیطی
 COPY .env.local .env.local
@@ -42,7 +45,7 @@ COPY .env.local .env.local
 RUN mkdir -p /certs
 
 # پورت‌ها
-EXPOSE 3000
+EXPOSE 80 443 3000
 
-# دستور اجرای برنامه در محیط تولید با استفاده از سرور داخلی Next.js
-CMD ["npm", "start"]
+# دستور اجرای برنامه در محیط تولید با استفاده از سرور کاستوم
+CMD ["node", "server.ts"]

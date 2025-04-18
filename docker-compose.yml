@@ -81,7 +81,7 @@ services:
       - app-network
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-    command: ["node", "server.ts"]
+    command: ["node", "server.js"]
 
   # سرویس Python
   pythonserver:
