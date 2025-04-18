@@ -36,7 +36,10 @@ COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/package.json ./package.json
 # کپی کردن فایل سرور.ts
 COPY --from=builder /usr/src/app/server.ts ./server.ts
-COPY --from=builder /usr/src/app/server.js ./server.js
+COPY --from=builder /usr/src/app/tsconfig.json ./tsconfig.json
+
+# نصب TypeScript و ts-node برای اجرای مستقیم فایل‌های TypeScript
+RUN npm install -g typescript ts-node
 
 # کپی فایل‌های محیطی
 COPY .env.local .env.local
@@ -48,4 +51,4 @@ RUN mkdir -p /certs
 EXPOSE 80 443 3000
 
 # دستور اجرای برنامه در محیط تولید با استفاده از سرور کاستوم
-CMD ["node", "server.ts"]
+CMD ["ts-node", "--transpile-only", "server.ts"]
