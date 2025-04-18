@@ -69,6 +69,7 @@ services:
     ports:
       - "80:80"     # HTTP برای ریدایرکت به HTTPS
       - "443:443"   # HTTPS
+      - "3000:3000" # برای دسترسی مستقیم در توسعه
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=https://nestjs:3001
@@ -81,7 +82,7 @@ services:
       - app-network
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-    command: ["node", "server.ts"]
+    # دستور در Dockerfile تنظیم شده است
 
   # سرویس Python
   pythonserver:
