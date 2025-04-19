@@ -10,6 +10,10 @@ const nextConfig = {
       {
         source: '/python-api/:path*',
         destination: 'https://a.networklearnzero.shop/python-api/:path*',
+      },
+      {
+        source: '/api/:path*',
+        destination: 'https://a.networklearnzero.shop/api/:path*',
       }
     ]
   }

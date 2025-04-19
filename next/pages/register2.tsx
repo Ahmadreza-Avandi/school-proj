@@ -53,8 +53,7 @@ const RegisterForm: React.FC = () => {
   useEffect(() => {
     const fetchMajors = async () => {
       try {
-        const apiUrl = 'https://a.networklearnzero.shop/api';
-        const res = await fetch(`${apiUrl}/majors`);
+        const res = await fetch('/api/majors');
         const data = await res.json();
         setMajors(data);
       } catch (error) {
@@ -64,8 +63,7 @@ const RegisterForm: React.FC = () => {
 
     const fetchGrades = async () => {
       try {
-        const apiUrl = 'https://a.networklearnzero.shop/api';
-        const res = await fetch(`${apiUrl}/grades`);
+        const res = await fetch('/api/grades');
         const data = await res.json();
         setGrades(data);
       } catch (error) {

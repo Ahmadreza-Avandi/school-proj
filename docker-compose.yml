@@ -60,6 +60,12 @@ services:
       - app-network
     command: >
       sh -c "sleep 10 && npx prisma migrate deploy && node dist/main.js"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nestjs.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/api`)"
+      - "traefik.http.middlewares.nestjs-strip.stripprefix.prefixes=/api"
+      - "traefik.http.routers.nestjs.middlewares=nestjs-strip"
+      - "traefik.http.services.nestjs.loadbalancer.server.port=3001"
 
   # سرویس Next.js (فرانت‌اند)
   nextjs:

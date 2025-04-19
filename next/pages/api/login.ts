@@ -7,8 +7,9 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
 
     try {
       // ارسال درخواست به API Nest.js برای ورود
+      const nestApiUrl = process.env.NESTJS_API_URL || 'http://nestjs:3001';
       const response = await axios.post(
-        'http://localhost:3001/auth/login',
+        `${nestApiUrl}/auth/login`,
         {
           nationalCode,
           password,
