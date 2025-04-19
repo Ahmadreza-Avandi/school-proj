@@ -73,7 +73,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=https://nestjs:3001
-      - NEXT_PUBLIC_PYTHON_API_URL=http://pythonserver:5000
+      - NEXT_PUBLIC_PYTHON_API_URL=https://a.networklearnzero.shop/python-api
     restart: unless-stopped
     depends_on:
       - nestjs
@@ -101,9 +101,18 @@ services:
       - FLASK_ENV=production
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=userpassword
+      - MYSQL_DATABASE=mydatabase
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
     command: ["flask", "run", "--host=0.0.0.0"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pythonserver.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-api`)"
+      - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
+      - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip"
 
   # سرویس phpMyAdmin
   phpmyadmin:
@@ -114,10 +123,16 @@ services:
       - PMA_HOST=mysql
       - PMA_USER=root
       - PMA_PASSWORD=rootpassword
+      - PMA_ABSOLUTE_URI=https://a.networklearnzero.shop/phpmyadmin/
     depends_on:
       - mysql
     networks:
       - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpmyadmin.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/phpmyadmin`)"
+      - "traefik.http.middlewares.phpmyadmin-strip.stripprefix.prefixes=/phpmyadmin"
+      - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-strip"
 
   # سرویس Redis Commander
   redis-commander:
@@ -127,10 +142,41 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=admin
+      - URL_PREFIX=/redis-commander
     depends_on:
       - redis
     networks:
       - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.redis-commander.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/redis-commander`)"
+
+  # سرویس Traefik برای مدیریت مسیرها
+  traefik:
+    image: traefik:v2.9
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "8080:8080" # داشبورد Traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/traefik`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=traefik-strip"
+      - "traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik"
 
 networks:
   app-network:

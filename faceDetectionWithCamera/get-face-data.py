@@ -32,7 +32,8 @@ except Exception as e:
 
 # تنظیم Flask و CORS
 app = Flask(__name__)
-CORS(app)
+# اجازه‌ی دسترسی از دامنه به API
+CORS(app, resources={r"/*": {"origins": ["https://a.networklearnzero.shop", "http://localhost:3000"]}})
 
 # مسیرهای Haar Cascade برای تشخیص چهره و چشم
 HAAR_CASCADE_PATHS = {

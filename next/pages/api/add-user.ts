@@ -3,7 +3,7 @@ import axios from 'axios';
 
 export default async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'POST') {
-    const { fullName, nationalCode, phoneNumber, password, roleId } = req.body;
+    const { fullName, nationalCode, phoneNumber, password, roleId, majorId, gradeId, identityPhoto } = req.body;
 
     // اعتبارسنجی ورودی‌ها
     if (!fullName || !nationalCode || !phoneNumber || !password || !roleId) {
@@ -11,15 +11,19 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
     }
 
     try {
-      // ارسال درخواست به API Nest.js برای افزودن کاربر
+      // استفاده از آدرس دامنه برای ارسال درخواست به API Nest.js
+      const nestApiUrl = process.env.NESTJS_API_URL || 'https://a.networklearnzero.shop/api';
       const response = await axios.post(
-        'http://backend:3001/users',
+        `${nestApiUrl}/users`,
         {
           fullName,
           nationalCode,
           phoneNumber,
-          password, // اضافه کردن رمز عبور به درخواست
-          roleId, // اطمینان حاصل کنید که roleId اینجا درست ارسال می‌شود
+          password,
+          roleId,
+          majorId, // افزودن رشته تحصیلی
+          gradeId, // افزودن پایه تحصیلی
+          identityPhoto, // افزودن تصویر شناسایی
         }
       );
 

@@ -10,6 +10,7 @@ import {
   CircularProgress,
   TextField,
   IconButton,
+  MenuItem,
 } from '@mui/material';
 import { useForm, Controller } from 'react-hook-form';
 import axios from 'axios';
@@ -52,7 +53,8 @@ const RegisterForm: React.FC = () => {
   useEffect(() => {
     const fetchMajors = async () => {
       try {
-        const res = await fetch('/api/majors');
+        const apiUrl = 'https://a.networklearnzero.shop/api';
+        const res = await fetch(`${apiUrl}/majors`);
         const data = await res.json();
         setMajors(data);
       } catch (error) {
@@ -62,7 +64,8 @@ const RegisterForm: React.FC = () => {
 
     const fetchGrades = async () => {
       try {
-        const res = await fetch('/api/grades');
+        const apiUrl = 'https://a.networklearnzero.shop/api';
+        const res = await fetch(`${apiUrl}/grades`);
         const data = await res.json();
         setGrades(data);
       } catch (error) {
@@ -106,7 +109,8 @@ const RegisterForm: React.FC = () => {
   const handleCapturedImageUpload = async (imageData: string) => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/upload', {
+      const pythonApiUrl = 'https://a.networklearnzero.shop/python-api';
+      const response = await fetch(`${pythonApiUrl}/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -114,6 +118,7 @@ const RegisterForm: React.FC = () => {
         body: JSON.stringify({
           image: imageData,
           nationalCode: nationalCode,
+          fullName: watch('fullName') || '',
         }),
       });
 
@@ -139,60 +144,60 @@ const RegisterForm: React.FC = () => {
   };
 
   // ارسال فرم نهایی ثبت‌نام همراه با تصویر تأیید شده
-    // ارسال فرم نهایی ثبت‌نام همراه با تصویر تأیید شده
-    const onSubmit = async (data: FormInputs) => {
-      if (!identityPhoto) {
-        setMessage("لطفاً ابتدا تصویر شناسایی خود را بگیرید و آپلود کنید.");
-        setSeverity('error');
+  const onSubmit = async (data: FormInputs) => {
+    if (!identityPhoto) {
+      setMessage("لطفاً ابتدا تصویر شناسایی خود را بگیرید و آپلود کنید.");
+      setSeverity('error');
+      setOpen(true);
+      return;
+    }
+
+    // در اینجا نقش به صورت ثابت برابر 1 (مثلاً ادمین) در نظر گرفته شده است
+    const formData = { ...data, roleId: 1, identityPhoto };
+
+    try {
+      setLoading(true);
+      // استفاده از API محلی Next.js برای افزودن کاربر
+      const response = await axios.post('https://a.networklearnzero.shop/api/add-user', formData);
+      
+      // بررسی دقیق‌تر وضعیت پاسخ
+      if (response.status >= 200 && response.status < 300) {
+        console.log('Registration successful:', response.data);
+        setMessage('ثبت‌نام با موفقیت انجام شد!');
+        setSeverity('success');
         setOpen(true);
-        return;
-      }
-  
-      // در اینجا نقش به صورت ثابت برابر 1 (مثلاً ادمین) در نظر گرفته شده است
-      const formData = { ...data, roleId: 1, identityPhoto };
-  
-      try {
-        setLoading(true);
-        const response = await axios.post('http://localhost:3001/users/add-user', formData);
         
-        // بررسی دقیق‌تر وضعیت پاسخ
-        if (response.status >= 200 && response.status < 300) {
-          console.log('Registration successful:', response.data);
-          setMessage('ثبت‌نام با موفقیت انجام شد!');
-          setSeverity('success');
-          setOpen(true);
-          
-          // تاخیر کوتاه‌تر برای انتقال به صفحه لاگین
-          setTimeout(() => {
-            try {
-              router.push('/login');
-            } catch (routeError) {
-              console.error('Error navigating to login page:', routeError);
-              // اگر هدایت با روش push مشکل داشت، از روش replace استفاده کنیم
-              window.location.href = '/login';
-            }
-          }, 2000);
-        } else {
-          console.error('Server responded with non-success status:', response.status, response.data);
-          interface ErrorResponse {
-            message?: string;
+        // تاخیر کوتاه‌تر برای انتقال به صفحه لاگین
+        setTimeout(() => {
+          try {
+            router.push('/login');
+          } catch (routeError) {
+            console.error('Error navigating to login page:', routeError);
+            // اگر هدایت با روش push مشکل داشت، از روش replace استفاده کنیم
+            window.location.href = '/login';
           }
-          const errorData = response.data as ErrorResponse;
-          setMessage(errorData.message || 'عملیات ثبت‌نام با خطا مواجه شد.');
-          setSeverity('error');
-          setOpen(true);
+        }, 2000);
+      } else {
+        console.error('Server responded with non-success status:', response.status, response.data);
+        interface ErrorResponse {
+          message?: string;
         }
-      } catch (error: any) {
-        console.error('Registration error:', error);
-        // نمایش پیام خطای دقیق‌تر
-        const errorMessage = error.response?.data?.message || error.message || 'خطا در ارسال داده‌ها';
-        setMessage(errorMessage);
+        const errorData = response.data as ErrorResponse;
+        setMessage(errorData.message || 'عملیات ثبت‌نام با خطا مواجه شد.');
         setSeverity('error');
         setOpen(true);
-      } finally {
-        setLoading(false);
       }
-    };
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      // نمایش پیام خطای دقیق‌تر
+      const errorMessage = error.response?.data?.message || error.message || 'خطا در ارسال داده‌ها';
+      setMessage(errorMessage);
+      setSeverity('error');
+      setOpen(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleNextStep = () => {
     if (step === 1 && !identityPhoto) {
@@ -275,6 +280,45 @@ const RegisterForm: React.FC = () => {
       </Typography>
     </Box>
   );
+
+  // رفع خطای JSX element implicitly has type 'any'
+  const renderIdentityPhoto = (photoSrc: string, onRemove: () => void) => {
+    return (
+      <Box sx={{ position: 'relative', width: '100%', aspectRatio: '3/4', mb: 2 }}>
+        <div 
+          style={{
+            width: '100%',
+            height: '100%',
+            backgroundImage: `url(${photoSrc})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            borderRadius: 8,
+          }}
+        />
+        <IconButton
+          onClick={onRemove}
+          sx={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            bgcolor: 'rgba(0,0,0,0.5)',
+            color: 'white',
+            '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
+          }}
+        >
+          <CloseIcon size={16} />
+        </IconButton>
+        <Button
+          variant="outlined"
+          onClick={() => setCameraActive(true)}
+          startIcon={<Camera />}
+          sx={{ width: '100%', mt: 2 }}
+        >
+          باز کردن دوربین مجدد
+        </Button>
+      </Box>
+    );
+  };
 
   return (
     <Container component="main" maxWidth="xs">
@@ -360,39 +404,7 @@ const RegisterForm: React.FC = () => {
               ) : (
                 <>
                   {identityPhoto ? (
-                    <Box sx={{ position: 'relative', width: '100%', aspectRatio: '3/4', mb: 2 }}>
-                      <img
-                        src={identityPhoto}
-                        alt="تصویر شناسایی"
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                          borderRadius: 8,
-                        }}
-                      />
-                      <IconButton
-                        onClick={() => setIdentityPhoto(null)}
-                        sx={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          bgcolor: 'rgba(0,0,0,0.5)',
-                          color: 'white',
-                          '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
-                        }}
-                      >
-                        <CloseIcon size={16} />
-                      </IconButton>
-                      <Button
-                        variant="outlined"
-                        onClick={startCamera}
-                        startIcon={<Camera />}
-                        sx={{ width: '100%', mt: 2 }}
-                      >
-                        باز کردن دوربین مجدد
-                      </Button>
-                    </Box>
+                    renderIdentityPhoto(identityPhoto, () => setIdentityPhoto(null))
                   ) : (
                     <Button
                       variant="outlined"
@@ -455,62 +467,56 @@ const RegisterForm: React.FC = () => {
               />
 
               {/* فیلد انتخاب رشته */}
-<Controller
-  name="majorId"
-  control={control}
-  defaultValue={0}
-  render={({ field }) => (
-    <TextField
-      {...field}
-      select
-      fullWidth
-      label="انتخاب رشته"
-      SelectProps={{
-        native: true,
-      }}
-      variant="outlined"
-      sx={{ direction: 'rtl' }}
-      onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
-      value={field.value}
-    >
-      <option value={0}>انتخاب رشته</option>
-      {majors.map((major) => (
-        <option key={major.id} value={major.id}>
-          {major.name}
-        </option>
-      ))}
-    </TextField>
-  )}
-/>
+              <Controller
+                name="majorId"
+                control={control}
+                defaultValue={0}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    select
+                    fullWidth
+                    label="انتخاب رشته"
+                    variant="outlined"
+                    sx={{ direction: 'rtl' }}
+                    onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
+                    value={field.value}
+                  >
+                    <MenuItem value={0}>انتخاب رشته</MenuItem>
+                    {majors.map((major) => (
+                      <MenuItem key={major.id} value={major.id}>
+                        {major.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
 
-{/* فیلد انتخاب پایه */}
-<Controller
-  name="gradeId"
-  control={control}
-  defaultValue={0}
-  render={({ field }) => (
-    <TextField
-      {...field}
-      select
-      fullWidth
-      label="انتخاب پایه"
-      SelectProps={{
-        native: true,
-      }}
-      variant="outlined"
-      sx={{ direction: 'rtl' }}
-      onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
-      value={field.value}
-    >
-      <option value={0}>انتخاب پایه</option>
-      {grades.map((grade) => (
-        <option key={grade.id} value={grade.id}>
-          {grade.name}
-        </option>
-      ))}
-    </TextField>
-  )}
-/>
+              {/* فیلد انتخاب پایه */}
+              <Controller
+                name="gradeId"
+                control={control}
+                defaultValue={0}
+                render={({ field }) => (
+                  <TextField
+                    {...field}
+                    select
+                    fullWidth
+                    label="انتخاب پایه"
+                    variant="outlined"
+                    sx={{ direction: 'rtl' }}
+                    onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
+                    value={field.value}
+                  >
+                    <MenuItem value={0}>انتخاب پایه</MenuItem>
+                    {grades.map((grade) => (
+                      <MenuItem key={grade.id} value={grade.id}>
+                        {grade.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
             </Box>
           )}
 
