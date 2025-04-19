@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir flask==2.3.3 \
     flask-cors==4.0.0 \
     redis==4.6.0 \
     numpy==1.23.5 \
-    opencv-python-headless==4.8.0.76 \
+    opencv-contrib-python-headless==4.8.0.76 \
     persiantools==3.0.1 \
     pytz==2023.3 \
     requests==2.31.0 \
