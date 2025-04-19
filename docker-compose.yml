@@ -137,10 +137,12 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.phpmyadmin.entrypoints=websecure"
       - "traefik.http.routers.phpmyadmin.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/phpmyadmin`)"
       - "traefik.http.middlewares.phpmyadmin-strip.stripprefix.prefixes=/phpmyadmin"
       - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-strip"
       - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
+      - "traefik.http.routers.phpmyadmin.priority=100"
 
   # سرویس Redis Commander
   redis-commander:

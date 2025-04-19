@@ -149,13 +149,29 @@ const RegisterForm: React.FC = () => {
       return;
     }
 
-    // در اینجا نقش به صورت ثابت برابر 1 (مثلاً ادمین) در نظر گرفته شده است
-    const formData = { ...data, roleId: 1, identityPhoto };
+    // تبدیل majorId و gradeId به عدد اگر الان رشته هستند
+    const majorIdNum = typeof data.majorId === 'string' ? parseInt(data.majorId, 10) : data.majorId || 1;
+    const gradeIdNum = typeof data.gradeId === 'string' ? parseInt(data.gradeId, 10) : data.gradeId || 1;
+
+    // اطمینان از اینکه majorId و gradeId مقادیر معتبری دارند
+    const processedData = {
+      ...data,
+      majorId: majorIdNum || 1,
+      gradeId: gradeIdNum || 1,
+      roleId: 1, // در اینجا نقش به صورت ثابت برابر 1 (مثلاً ادمین) در نظر گرفته شده است
+    };
 
     try {
       setLoading(true);
+      // کوتاه کردن تصویر برای جلوگیری از مشکلات حجم
+      let optimizedPhoto = identityPhoto;
+      if (identityPhoto && identityPhoto.length > 500000) {
+        // اگر طول رشته بیش از 500KB است، فقط 500KB اول را استفاده کنیم
+        optimizedPhoto = identityPhoto.substring(0, 500000);
+      }
+
       // استفاده از API محلی Next.js برای افزودن کاربر
-      const response = await axios.post('/api/add-user', formData);
+      const response = await axios.post('/api/add-user', { ...processedData, identityPhoto: optimizedPhoto });
       
       // بررسی دقیق‌تر وضعیت پاسخ
       if (response.status >= 200 && response.status < 300) {
