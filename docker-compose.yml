@@ -78,8 +78,9 @@ services:
       - "3000:3000" # برای دسترسی مستقیم در توسعه
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://nestjs:3001
-      - NEXT_PUBLIC_PYTHON_API_URL=https://a.networklearnzero.shop/python-api
+      - NEXT_PUBLIC_API_URL=/api
+      - NEXT_PUBLIC_PYTHON_API_URL=/python-api
+      - NESTJS_API_URL=http://nestjs:3001
     restart: unless-stopped
     depends_on:
       - nestjs
@@ -88,7 +89,7 @@ services:
       - app-network
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-    # اسکریپت سفارشی در Dockerfile تنظیم شده است  
+    # اسکریپت سفارشی در Dockerfile تنظیم شده است
 
   # سرویس Python
   pythonserver:

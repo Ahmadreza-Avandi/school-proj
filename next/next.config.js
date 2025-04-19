@@ -9,11 +9,11 @@ const nextConfig = {
     return [
       {
         source: '/python-api/:path*',
-        destination: 'https://a.networklearnzero.shop/python-api/:path*',
+        destination: 'http://pythonserver:5000/:path*',
       },
       {
         source: '/api/:path*',
-        destination: 'https://a.networklearnzero.shop/api/:path*',
+        destination: 'http://nestjs:3001/:path*',
       }
     ]
   }
