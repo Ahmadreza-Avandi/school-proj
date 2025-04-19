@@ -82,7 +82,7 @@ services:
       - app-network
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-    # دستور در Dockerfile تنظیم شده است
+    # اسکریپت سفارشی در Dockerfile تنظیم شده است  
 
   # سرویس Python
   pythonserver:

@@ -1,7 +1,7 @@
 // CommonJS version of the server
 const https = require('https');
 const http = require('http');
-const url = require('url');
+const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
 const express = require('express');
@@ -36,7 +36,7 @@ app.prepare().then(() => {
   // 🚀 اگر گواهینامه‌ها وجود داشت، سرور HTTPS رو اجرا کن
   if (httpsOptions.key && httpsOptions.cert) {
     https.createServer(httpsOptions, (req, res) => {
-      const parsedUrl = url.parse(req.url || '', true);
+      const parsedUrl = parse(req.url || '', true);
       handle(req, res, parsedUrl);
     }).listen(443, () => {
       console.log('✅ HTTPS Server running on https://yourdomain.com');
@@ -45,7 +45,7 @@ app.prepare().then(() => {
     console.error('❌ SSL certificates not found! Make sure Let\'s Encrypt is configured.');
     // در صورتی که SSL موجود نباشد، سرور HTTP رو اجرا کن
     http.createServer((req, res) => {
-      const parsedUrl = url.parse(req.url || '', true);
+      const parsedUrl = parse(req.url || '', true);
       handle(req, res, parsedUrl);
     }).listen(3000, () => {
       console.log('❌ Running without SSL on http://localhost:3000');

@@ -1,10 +1,18 @@
 import { createServer } from 'https';
-import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 import next from 'next';
 import fs from 'fs';
 import express from 'express';
-import { IncomingMessage, ServerResponse } from 'http';
+
+// خطاهای TypeScript را رفع می‌کنیم
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NODE_ENV: 'development' | 'production';
+    }
+  }
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -20,7 +28,7 @@ app.prepare().then(() => {
   const server = express();
 
   // 🚀 ریدایرکت HTTP به HTTPS
-  createHttpServer((req, res) => {
+  createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     // در صورتی که گواهینامه SSL موجود نباشد، ریدایرکت به پورت 3000 انجام می‌شود.
     if (!httpsOptions.key || !httpsOptions.cert) {
       res.writeHead(301, { Location: `http://${req.headers.host}${req.url}` });
@@ -44,7 +52,7 @@ app.prepare().then(() => {
   } else {
     console.error('❌ SSL certificates not found! Make sure Let\'s Encrypt is configured.');
     // در صورتی که SSL موجود نباشد، سرور HTTP رو اجرا کن
-    createHttpServer((req, res) => {
+    createHttpServer((req: IncomingMessage, res: ServerResponse) => {
       const parsedUrl = parse(req.url || '', true);
       handle(req, res, parsedUrl);
     }).listen(3000, () => {
