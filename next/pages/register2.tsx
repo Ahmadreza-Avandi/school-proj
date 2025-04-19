@@ -109,8 +109,7 @@ const RegisterForm: React.FC = () => {
   const handleCapturedImageUpload = async (imageData: string) => {
     try {
       setLoading(true);
-      const pythonApiUrl = 'https://a.networklearnzero.shop/python-api';
-      const response = await fetch(`${pythonApiUrl}/upload`, {
+      const response = await fetch('/python-api/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +157,7 @@ const RegisterForm: React.FC = () => {
     try {
       setLoading(true);
       // استفاده از API محلی Next.js برای افزودن کاربر
-      const response = await axios.post('https://a.networklearnzero.shop/api/add-user', formData);
+      const response = await axios.post('/api/add-user', formData);
       
       // بررسی دقیق‌تر وضعیت پاسخ
       if (response.status >= 200 && response.status < 300) {

@@ -11,8 +11,12 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
     }
 
     try {
-      // استفاده از آدرس دامنه برای ارسال درخواست به API Nest.js
-      const nestApiUrl = process.env.NESTJS_API_URL || 'https://a.networklearnzero.shop/api';
+      // استفاده از آدرس داخلی داکر برای ارسال درخواست به سرویس Nest.js
+      const nestApiUrl = process.env.NESTJS_API_URL || 'http://nestjs:3001';
+      
+      // لاگ کردن اطلاعات برای دیباگ
+      console.log(`Sending user registration to: ${nestApiUrl}/users`);
+      
       const response = await axios.post(
         `${nestApiUrl}/users`,
         {
