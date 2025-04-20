@@ -40,7 +40,7 @@ export class UserService {
       
       // استفاده از کوئری خام SQL برای اطمینان از اینکه مشکل auto_increment حل شود
       const query = `
-        INSERT INTO \`user\` 
+        INSERT INTO \`User\` 
         (\`fullName\`, \`nationalCode\`, \`phoneNumber\`, \`password\`, \`roleId\`, \`majorId\`, \`gradeId\`, \`classId\`) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `;
@@ -93,7 +93,26 @@ export class UserService {
       where: { nationalCode },
       include: { role: true },
     });
-    if (!user) throw new NotFoundException('User not found');
+    
+    // اگر کاربر پیدا نشد با استفاده از کوئری خام دوباره تلاش می‌کنیم
+    if (!user) {
+      try {
+        // استفاده از کوئری خام برای پیدا کردن کاربر با کد ملی
+        const result = await this.prisma.$queryRaw`
+          SELECT * FROM \`User\` WHERE nationalCode = ${nationalCode} LIMIT 1
+        `;
+        
+        if (Array.isArray(result) && result.length > 0) {
+          return result[0];
+        }
+        
+        throw new NotFoundException('User not found');
+      } catch (error) {
+        console.error('Error finding user by national code:', error);
+        throw error;
+      }
+    }
+    
     return user;
   }
 
