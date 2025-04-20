@@ -4,6 +4,7 @@ import { parse } from 'url';
 import next from 'next';
 import fs from 'fs';
 import express from 'express';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 // خطاهای TypeScript را رفع می‌کنیم
 declare global {
@@ -27,6 +28,20 @@ const httpsOptions = {
 app.prepare().then(() => {
   const server = express();
 
+  // تنظیم پراکسی مستقیم برای phpMyAdmin
+  server.use('/phpmyadmin', createProxyMiddleware({
+    target: 'http://phpmyadmin:80',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/phpmyadmin': '/'
+    }
+  }));
+
+  // همه درخواست‌های دیگر را به Next.js ارسال می‌کنیم
+  server.all('*', (req, res) => {
+    return handle(req, res);
+  });
+
   // 🚀 ریدایرکت HTTP به HTTPS
   createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     // در صورتی که گواهینامه SSL موجود نباشد، ریدایرکت به پورت 3000 انجام می‌شود.
@@ -43,19 +58,13 @@ app.prepare().then(() => {
 
   // 🚀 اگر گواهینامه‌ها وجود داشت، سرور HTTPS رو اجرا کن
   if (httpsOptions.key && httpsOptions.cert) {
-    createServer(httpsOptions, (req: IncomingMessage, res: ServerResponse) => {
-      const parsedUrl = parse(req.url || '', true);
-      handle(req, res, parsedUrl);
-    }).listen(443, () => {
+    createServer(httpsOptions, server).listen(443, () => {
       console.log('✅ HTTPS Server running on https://yourdomain.com');
     });
   } else {
     console.error('❌ SSL certificates not found! Make sure Let\'s Encrypt is configured.');
     // در صورتی که SSL موجود نباشد، سرور HTTP رو اجرا کن
-    createHttpServer((req: IncomingMessage, res: ServerResponse) => {
-      const parsedUrl = parse(req.url || '', true);
-      handle(req, res, parsedUrl);
-    }).listen(3000, () => {
+    server.listen(3000, () => {
       console.log('❌ Running without SSL on http://localhost:3000');
     });
   }

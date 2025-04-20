@@ -5,6 +5,7 @@ const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
 const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -18,6 +19,20 @@ const httpsOptions = {
 
 app.prepare().then(() => {
   const server = express();
+  
+  // تنظیم پراکسی مستقیم برای phpMyAdmin
+  server.use('/phpmyadmin', createProxyMiddleware({
+    target: 'http://phpmyadmin:80',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/phpmyadmin': '/'
+    }
+  }));
+
+  // همه درخواست‌های دیگر را به Next.js ارسال می‌کنیم
+  server.all('*', (req, res) => {
+    return handle(req, res);
+  });
 
   // 🚀 ریدایرکت HTTP به HTTPS
   http.createServer((req, res) => {
@@ -35,19 +50,13 @@ app.prepare().then(() => {
 
   // 🚀 اگر گواهینامه‌ها وجود داشت، سرور HTTPS رو اجرا کن
   if (httpsOptions.key && httpsOptions.cert) {
-    https.createServer(httpsOptions, (req, res) => {
-      const parsedUrl = parse(req.url || '', true);
-      handle(req, res, parsedUrl);
-    }).listen(443, () => {
+    https.createServer(httpsOptions, server).listen(443, () => {
       console.log('✅ HTTPS Server running on https://yourdomain.com');
     });
   } else {
     console.error('❌ SSL certificates not found! Make sure Let\'s Encrypt is configured.');
     // در صورتی که SSL موجود نباشد، سرور HTTP رو اجرا کن
-    http.createServer((req, res) => {
-      const parsedUrl = parse(req.url || '', true);
-      handle(req, res, parsedUrl);
-    }).listen(3000, () => {
+    server.listen(3000, () => {
       console.log('❌ Running without SSL on http://localhost:3000');
     });
   }
