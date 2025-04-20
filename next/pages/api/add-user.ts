@@ -14,9 +14,9 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'POST') {
     const { fullName, nationalCode, phoneNumber, password, roleId, majorId, gradeId, identityPhoto } = req.body;
 
-    // اعتبارسنجی ورودی‌ها
+    // اعتبارسنجی ورودی‌های الزامی
     if (!fullName || !nationalCode || !phoneNumber || !password || !roleId) {
-      return res.status(400).json({ message: 'لطفا همه فیلدها را پر کنید' });
+      return res.status(400).json({ message: 'لطفا همه فیلدهای الزامی را پر کنید' });
     }
 
     try {
@@ -26,18 +26,26 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
       // لاگ کردن اطلاعات برای دیباگ
       console.log(`Sending user registration to: ${nestApiUrl}/users/add-user`);
       
+      // ساخت داده‌های درخواست با فیلدهای اختیاری
+      const requestData: any = {
+        fullName,
+        nationalCode,
+        phoneNumber,
+        password,
+        roleId
+      };
+
+      // افزودن فیلدهای اختیاری در صورت وجود
+      if (majorId !== undefined) requestData.majorId = majorId;
+      if (gradeId !== undefined) requestData.gradeId = gradeId;
+      if (identityPhoto) requestData.identityPhoto = identityPhoto;
+
+      // نمایش داده‌های ارسالی به سرور
+      console.log('Registration data:', JSON.stringify(requestData, null, 2));
+      
       const response = await axios.post(
         `${nestApiUrl}/users/add-user`,
-        {
-          fullName,
-          nationalCode,
-          phoneNumber,
-          password,
-          roleId,
-          majorId, // افزودن رشته تحصیلی
-          gradeId, // افزودن پایه تحصیلی
-          identityPhoto, // افزودن تصویر شناسایی
-        }
+        requestData
       );
 
       // اگر عملیات افزودن کاربر موفقیت‌آمیز بود
