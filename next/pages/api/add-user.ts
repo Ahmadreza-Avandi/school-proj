@@ -24,10 +24,10 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
       const nestApiUrl = process.env.NESTJS_API_URL || 'http://nestjs:3001';
       
       // لاگ کردن اطلاعات برای دیباگ
-      console.log(`Sending user registration to: ${nestApiUrl}/users`);
+      console.log(`Sending user registration to: ${nestApiUrl}/users/add-user`);
       
       const response = await axios.post(
-        `${nestApiUrl}/users`,
+        `${nestApiUrl}/users/add-user`,
         {
           fullName,
           nationalCode,
