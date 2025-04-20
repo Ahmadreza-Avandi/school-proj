@@ -41,8 +41,8 @@ export class UserService {
       // استفاده از کوئری خام SQL برای اطمینان از اینکه مشکل auto_increment حل شود
       const query = `
         INSERT INTO \`User\` 
-        (\`fullName\`, \`nationalCode\`, \`phoneNumber\`, \`password\`, \`roleId\`, \`majorId\`, \`gradeId\`, \`classId\`) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (\`id\`, \`fullName\`, \`nationalCode\`, \`phoneNumber\`, \`password\`, \`roleId\`, \`majorId\`, \`gradeId\`, \`classId\`) 
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       const values = [
