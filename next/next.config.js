@@ -8,6 +8,14 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: '/phpmyadmin',
+        destination: 'http://phpmyadmin:80',
+      },
+      {
+        source: '/phpmyadmin/:path*',
+        destination: 'http://phpmyadmin:80/:path*',
+      },
+      {
         source: '/python-api/:path*',
         destination: 'http://pythonserver:5000/:path*',
       },

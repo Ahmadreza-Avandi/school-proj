@@ -1,6 +1,15 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
+// Define environment variable type
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NESTJS_API_URL?: string;
+    }
+  }
+}
+
 export default async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'POST') {
     const { fullName, nationalCode, phoneNumber, password, roleId, majorId, gradeId, identityPhoto } = req.body;
