@@ -158,7 +158,7 @@ const RegisterForm: React.FC = () => {
       ...data,
       majorId: majorIdNum || 1,
       gradeId: gradeIdNum || 1,
-      roleId: 1, // در اینجا نقش به صورت ثابت برابر 1 (مثلاً ادمین) در نظر گرفته شده است
+      roleId: 2, // تنظیم نقش به صورت ثابت برابر 2 (کاربر عادی)
     };
 
     try {

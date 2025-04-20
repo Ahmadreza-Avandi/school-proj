@@ -15,7 +15,7 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
     const { fullName, nationalCode, phoneNumber, password, roleId, majorId, gradeId, identityPhoto } = req.body;
 
     // اعتبارسنجی ورودی‌های الزامی
-    if (!fullName || !nationalCode || !phoneNumber || !password || !roleId) {
+    if (!fullName || !nationalCode || !phoneNumber || !password) {
       return res.status(400).json({ message: 'لطفا همه فیلدهای الزامی را پر کنید' });
     }
 
@@ -32,12 +32,12 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
         nationalCode,
         phoneNumber,
         password,
-        roleId
+        roleId: roleId || 2, // تنظیم نقش به صورت پیشفرض 2 (کاربر عادی) اگر ارسال نشده باشد
       };
 
       // افزودن فیلدهای اختیاری در صورت وجود
-      if (majorId !== undefined) requestData.majorId = majorId;
-      if (gradeId !== undefined) requestData.gradeId = gradeId;
+      if (majorId !== undefined) requestData.majorId = Number(majorId);
+      if (gradeId !== undefined) requestData.gradeId = Number(gradeId);
       if (identityPhoto) requestData.identityPhoto = identityPhoto;
 
       // نمایش داده‌های ارسالی به سرور

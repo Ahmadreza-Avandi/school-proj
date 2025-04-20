@@ -11,19 +11,20 @@ export class UserService {
 
   // ایجاد کاربر جدید
   async create(createUserDto: CreateUserDto) {
-    // هش کردن رمز عبور
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-  
-    // پیدا کردن کلاس بر اساس رشته و پایه
-    const classRecord = await this.prisma.class.findFirst({
-      where: {
-        majorId: createUserDto.majorId,
-        gradeId: createUserDto.gradeId,
-      },
-    });
-  
-    return this.prisma.user.create({
-      data: {
+    try {
+      // هش کردن رمز عبور
+      const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    
+      // پیدا کردن کلاس بر اساس رشته و پایه
+      const classRecord = await this.prisma.class.findFirst({
+        where: {
+          majorId: createUserDto.majorId,
+          gradeId: createUserDto.gradeId,
+        },
+      });
+    
+      // اطمینان از اینکه تمامی مقادیر به درستی تعریف شده‌اند
+      const userData = {
         fullName: createUserDto.fullName,
         nationalCode: createUserDto.nationalCode,
         phoneNumber: createUserDto.phoneNumber,
@@ -32,8 +33,17 @@ export class UserService {
         majorId: createUserDto.majorId,
         gradeId: createUserDto.gradeId,
         classId: classRecord ? classRecord.id : null, // اختصاص خودکار کلاس
-      },
-    });
+      };
+
+      console.log('Creating user with data:', JSON.stringify(userData, null, 2));
+      
+      return this.prisma.user.create({
+        data: userData,
+      });
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   }
   
 
