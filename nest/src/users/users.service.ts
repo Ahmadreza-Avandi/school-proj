@@ -22,24 +22,46 @@ export class UserService {
           gradeId: createUserDto.gradeId,
         },
       });
-    
-      // اطمینان از اینکه تمامی مقادیر به درستی تعریف شده‌اند
-      const userData = {
-        fullName: createUserDto.fullName,
-        nationalCode: createUserDto.nationalCode,
-        phoneNumber: createUserDto.phoneNumber,
-        password: hashedPassword,
-        roleId: createUserDto.roleId,
-        majorId: createUserDto.majorId,
-        gradeId: createUserDto.gradeId,
-        classId: classRecord ? classRecord.id : null, // اختصاص خودکار کلاس
-      };
-
-      console.log('Creating user with data:', JSON.stringify(userData, null, 2));
       
-      return this.prisma.user.create({
-        data: userData,
-      });
+      // تبدیل مقادیر به اعداد صحیح
+      const majorId = typeof createUserDto.majorId === 'string' 
+        ? parseInt(createUserDto.majorId, 10) 
+        : createUserDto.majorId;
+      
+      const gradeId = typeof createUserDto.gradeId === 'string' 
+        ? parseInt(createUserDto.gradeId, 10) 
+        : createUserDto.gradeId;
+      
+      const roleId = typeof createUserDto.roleId === 'string' 
+        ? parseInt(createUserDto.roleId, 10) 
+        : createUserDto.roleId;
+      
+      const classId = classRecord ? classRecord.id : null;
+      
+      // استفاده از کوئری خام SQL برای اطمینان از اینکه مشکل auto_increment حل شود
+      const query = `
+        INSERT INTO \`user\` 
+        (\`fullName\`, \`nationalCode\`, \`phoneNumber\`, \`password\`, \`roleId\`, \`majorId\`, \`gradeId\`, \`classId\`) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const values = [
+        createUserDto.fullName,
+        createUserDto.nationalCode,
+        createUserDto.phoneNumber,
+        hashedPassword,
+        roleId,
+        majorId,
+        gradeId,
+        classId
+      ];
+      
+      console.log('Executing raw SQL query with values:', values);
+      
+      await this.prisma.$executeRawUnsafe(query, ...values);
+      
+      // بعد از درج، کاربر را با کد ملی بازیابی می‌کنیم
+      return this.findByNationalCode(createUserDto.nationalCode);
     } catch (error) {
       console.error('Error creating user:', error);
       throw error;
