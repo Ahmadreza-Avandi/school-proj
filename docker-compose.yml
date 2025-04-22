@@ -35,6 +35,7 @@ services:
       - app-network
     volumes:
       - redis_data:/data
+    command: redis-server --replicaof no one
 
   # سرویس Nest.js (بک‌اند)
   nestjs:

@@ -1,41 +1,196 @@
 # سیستم حضور و غیاب با تشخیص چهره
 
-این پروژه شامل یک سیستم حضور و غیاب با قابلیت تشخیص چهره است که از Next.js برای فرانت‌اند، Nest.js برای بک‌اند، Redis برای ذخیره‌سازی موقت و MySQL برای دیتابیس استفاده می‌کند.
+این پروژه شامل یک سیستم حضور و غیاب با قابلیت تشخیص چهره است که از Next.js برای فرانت‌اند، Nest.js برای بک‌اند، Redis برای ذخیره‌سازی موقت و MySQL برای دیتابیس استفاده می‌کند. همچنین از Traefik برای reverse proxy و مدیریت مسیرها استفاده می‌شود.
+
+## معماری پروژه
+
+سیستم از چندین سرویس مستقل تشکیل شده است:
+
+- **فرانت‌اند (Next.js)**: رابط کاربری وب سیستم
+- **بک‌اند (Nest.js)**: API برای مدیریت کاربران، حضور و غیاب و گزارش‌گیری
+- **سرویس تشخیص چهره (Python/Flask)**: پردازش تصاویر و تشخیص چهره‌ها
+- **دیتابیس (MySQL)**: ذخیره‌سازی داده‌های کاربران، کلاس‌ها و سوابق حضور و غیاب
+- **کش (Redis)**: ذخیره‌سازی موقت اطلاعات و جلسات کاربران
+- **Traefik**: مدیریت درخواست‌ها و هدایت آنها به سرویس‌های مناسب
 
 ## نصب و راه‌اندازی
 
 ### پیش‌نیازها
 
 - Docker و Docker Compose
-- Python 3.10 یا بالاتر
-- Node.js 16 یا بالاتر (برای توسعه)
+- Git
+- دسترسی به اینترنت برای دانلود ایمیج‌های Docker
 
-### راه‌اندازی سرویس‌های اصلی با Docker
+### راه‌اندازی با Docker
 
-سرویس‌های اصلی شامل MySQL، Redis، Nest.js (بک‌اند) و Next.js (فرانت‌اند) با Docker Compose راه‌اندازی می‌شوند:
+1. ابتدا مخزن را Clone کنید:
+```bash
+git clone https://github.com/yourusername/attendance-system.git
+cd attendance-system
+```
 
+2. سرویس‌ها را با Docker Compose راه‌اندازی کنید:
 ```bash
 docker-compose up -d
 ```
 
-این دستور تمام سرویس‌های زیر را راه‌اندازی می‌کند:
-- MySQL (پورت 3306)
-- Redis (پورت 6379)
-- Nest.js (پورت 3001)
-- Next.js (پورت 3000)
-- phpMyAdmin (پورت 8081)
-- Redis Commander (پورت 8082)
+3. منتظر بمانید تا همه سرویس‌ها اجرا شوند (ممکن است چند دقیقه طول بکشد):
+```bash
+docker-compose ps
+```
 
-### راه‌اندازی سرویس تشخیص چهره (خارج از Docker)
+4. تمام سرویس‌ها از طریق آدرس اصلی در دسترس خواهند بود:
+   - فرانت‌اند: https://a.networklearnzero.shop
+   - API بک‌اند: https://a.networklearnzero.shop/api
+   - API تشخیص چهره: https://a.networklearnzero.shop/python-api
+   - پنل مدیریت دیتابیس: https://a.networklearnzero.shop/phpmyadmin
+   - پنل مدیریت Redis: https://a.networklearnzero.shop/redis-commander
+   - پنل مدیریت Traefik: https://a.networklearnzero.shop/traefik
 
-سرویس تشخیص چهره با Python باید به صورت جداگانه و خارج از Docker اجرا شود. برای راه‌اندازی این سرویس:
+### دسترسی داخلی به سرویس‌ها (برای توسعه)
+
+در محیط توسعه، می‌توانید مستقیماً به سرویس‌ها دسترسی داشته باشید:
+
+- فرانت‌اند Next.js: http://localhost:3000
+- API بک‌اند Nest.js: http://localhost:3001
+- API تشخیص چهره: http://localhost:5000
+- MySQL: localhost:3306
+- phpMyAdmin: http://localhost:8081
+- Redis Commander: http://localhost:8082
+- داشبورد Traefik: http://localhost:8080
+
+## ساختار پروژه
+
+```
+attendance-system/
+├── docker-compose.yml       # تنظیمات Docker Compose
+├── mysql-init.sql           # اسکریپت اولیه دیتابیس
+├── nest/                    # کد بک‌اند (Nest.js)
+│   ├── Dockerfile           # فایل Docker برای بک‌اند
+│   ├── src/                 # کد منبع بک‌اند
+│   ├── prisma/              # تنظیمات و مدل‌های Prisma
+│   └── ...
+├── next/                    # کد فرانت‌اند (Next.js)
+│   ├── Dockerfile           # فایل Docker برای فرانت‌اند
+│   ├── src/                 # کد منبع فرانت‌اند
+│   └── ...
+└── faceDetectionWithCamera/ # کد تشخیص چهره (Python/Flask)
+    ├── Dockerfile           # فایل Docker برای سرویس تشخیص چهره
+    ├── get-face-data.py     # اپلیکیشن Flask برای تشخیص چهره
+    ├── requirements.txt     # وابستگی‌های Python
+    └── ...
+```
+
+## نکات کاربردی و حل مشکلات متداول
+
+### تنظیم Redis
+
+Redis به صورت پیش‌فرض در حالت standalone تنظیم شده است. اگر با خطای زیر مواجه شدید:
+```
+Error condition on socket for SYNC: Connection refused
+```
+
+اطمینان حاصل کنید که در `docker-compose.yml` دستور زیر برای سرویس Redis تنظیم شده باشد:
+```yaml
+command: redis-server --replicaof no one
+```
+
+### مشکل ثبت کاربر جدید
+
+اگر هنگام ثبت کاربر جدید با خطای زیر مواجه شدید:
+```
+Field 'id' doesn't have a default value
+```
+
+باید جدول `User` در دیتابیس را اصلاح کنید تا فیلد `id` به صورت AUTO_INCREMENT تنظیم شود:
+
+```sql
+SET FOREIGN_KEY_CHECKS = 0;
+ALTER TABLE `User` MODIFY COLUMN `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY;
+SET FOREIGN_KEY_CHECKS = 1;
+```
+
+این دستور را می‌توانید از طریق phpMyAdmin اجرا کنید.
+
+### بازسازی کانتینرها
+
+برای بازسازی یک سرویس خاص (مثلاً پس از تغییر کد):
+
+```bash
+docker-compose build nestjs  # بازسازی فقط سرویس بک‌اند
+docker-compose up -d nestjs  # راه‌اندازی مجدد سرویس
+```
+
+برای بازسازی همه سرویس‌ها:
+
+```bash
+docker-compose down
+docker-compose build
+docker-compose up -d
+```
+
+### مشاهده لاگ‌ها
+
+برای مشاهده لاگ‌های یک سرویس خاص:
+
+```bash
+docker-compose logs -f nestjs  # مشاهده لاگ‌های بک‌اند
+docker-compose logs -f nextjs  # مشاهده لاگ‌های فرانت‌اند
+docker-compose logs -f redis   # مشاهده لاگ‌های Redis
+```
+
+## ویژگی‌های سیستم
+
+- **احراز هویت کاربران**: ثبت‌نام، ورود و مدیریت سطوح دسترسی
+- **مدیریت کلاس‌ها**: افزودن، ویرایش و حذف کلاس‌ها
+- **مدیریت دانش‌آموزان**: افزودن، ویرایش و حذف اطلاعات دانش‌آموزان
+- **تشخیص چهره**: ثبت حضور خودکار با استفاده از تشخیص چهره
+- **گزارش‌گیری**: امکان گزارش‌گیری از وضعیت حضور و غیاب دانش‌آموزان
+
+## نحوه توسعه (برای توسعه‌دهندگان)
+
+### توسعه بک‌اند (Nest.js)
+
+1. وارد دایرکتوری nest شوید:
+```bash
+cd nest
+```
+
+2. وابستگی‌ها را نصب کنید:
+```bash
+npm install
+```
+
+3. سرویس را در حالت توسعه اجرا کنید:
+```bash
+npm run start:dev
+```
+
+### توسعه فرانت‌اند (Next.js)
+
+1. وارد دایرکتوری next شوید:
+```bash
+cd next
+```
+
+2. وابستگی‌ها را نصب کنید:
+```bash
+npm install
+```
+
+3. سرویس را در حالت توسعه اجرا کنید:
+```bash
+npm run dev
+```
+
+### توسعه سرویس تشخیص چهره (Python/Flask)
 
 1. وارد دایرکتوری faceDetectionWithCamera شوید:
 ```bash
 cd faceDetectionWithCamera
 ```
 
-2. یک محیط مجازی Python ایجاد کنید (اختیاری اما توصیه می‌شود):
+2. یک محیط مجازی ایجاد کنید:
 ```bash
 python -m venv venv
 source venv/bin/activate  # در لینوکس/مک
@@ -43,82 +198,16 @@ source venv/bin/activate  # در لینوکس/مک
 venv\Scripts\activate  # در ویندوز
 ```
 
-3. پکیج‌های مورد نیاز را نصب کنید:
+3. وابستگی‌ها را نصب کنید:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. سرویس تشخیص چهره را اجرا کنید:
+4. سرویس را اجرا کنید:
 ```bash
-python get-face-data.py
+flask run --debug
 ```
 
-این سرویس روی پورت 5000 در دسترس خواهد بود.
+## مجوز و لایسنس
 
-## آدرس‌های دسترسی
-
-- فرانت‌اند Next.js: http://localhost:3000
-- API بک‌اند Nest.js: http://localhost:3001/api
-- API تشخیص چهره: http://localhost:5000
-- phpMyAdmin: http://localhost:8081
-- Redis Commander: http://localhost:8082
-
-## ساختار پروژه
-
-- `next/`: کد فرانت‌اند (Next.js)
-- `nest/`: کد بک‌اند (Nest.js)
-- `faceDetectionWithCamera/`: کد تشخیص چهره (Python/Flask)
-  - `get-face-data.py`: اپلیکیشن Flask برای تشخیص چهره
-  - `assets/`: تصاویر و فایل‌های مورد نیاز
-  - `requirements.txt`: وابستگی‌های Python
-
-## نکات مهم
-
-- سرویس Redis به صورت پیش‌فرض روی localhost:6379 در دسترس است.
-- هنگام اجرای سرویس تشخیص چهره، اطمینان حاصل کنید که Redis از طریق Docker اجرا شده و در دسترس است.
-- سرویس تشخیص چهره به دایرکتوری‌های `trainer` و `labels` برای ذخیره داده‌ها نیاز دارد که به صورت خودکار ایجاد می‌شوند.
-
-## Docker Setup and Configuration
-
-This project includes multiple services configured with Docker:
-
-1. Frontend (Next.js)
-2. Backend (Nest.js)
-3. MySQL Database
-4. Redis Cache
-5. Face Detection (Python service)
-
-### Running with Docker
-
-1. Make sure Docker and Docker Compose are installed on your system
-2. Clone this repository
-3. Build and start all services:
-
-```bash
-docker-compose up -d
-```
-
-4. Check if all services are running:
-
-```bash
-docker-compose ps
-```
-
-### Troubleshooting
-
-If you encounter issues:
-
-1. Check container logs:
-
-```bash
-docker-compose logs -f [service_name]
-```
-
-2. Make sure all required ports are available
-3. If database connection fails, you might need to wait for the database to initialize before starting the backend
-
-### Accessing Services
-
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:3001
-- Face Detection API: http://localhost:5000 
+این پروژه تحت مجوز MIT منتشر شده است. 
