@@ -26,8 +26,9 @@ RUN pip install --no-cache-dir flask==2.3.3 \
     boto3==1.28.38 \
     cryptography==41.0.3
 
-# ایجاد پوشه‌های مورد نیاز
-RUN mkdir -p trainer labels assets/face_detection data
+# ایجاد پوشه‌های مورد نیاز با دسترسی مناسب
+RUN mkdir -p trainer labels assets/face_detection data && \
+    chmod 777 trainer labels
 
 # کپی فایل‌های موردنیاز
 COPY get-face-data.py .
