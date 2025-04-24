@@ -20,7 +20,6 @@ os.makedirs("labels", exist_ok=True)
 # پیکربندی لاگ
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# آدرس میزبان Redis (localhost برای اجرا خارج از داکر)
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 try:
     redis_client = redis.StrictRedis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
@@ -32,8 +31,7 @@ except Exception as e:
 
 # تنظیم Flask و CORS
 app = Flask(__name__)
-# اجازه‌ی دسترسی از دامنه به API
-CORS(app, resources={r"/*": {"origins": ["https://a.networklearnzero.shop", "http://localhost:3000"]}})
+CORS(app)
 
 # مسیرهای Haar Cascade برای تشخیص چهره و چشم
 HAAR_CASCADE_PATHS = {
@@ -159,6 +157,9 @@ def train_model():
     faces = []
     labels = []
     labels_to_name = {}
+    # دیکشنری برای نگاشت بین کد ملی و برچسب عددی یکتا
+    national_code_to_label = {}
+    label_counter = 1
 
     for key in redis_client.scan_iter():
         try:
@@ -166,6 +167,7 @@ def train_model():
             if not value:
                 continue
             data = json.loads(value)
+            national_code = data.get("nationalCode", key)
             face_base64 = data.get('faceImage')
             if not face_base64:
                 continue
@@ -178,17 +180,21 @@ def train_model():
                 continue
 
             resized_face = cv2.resize(face_img, (100, 100))
-            try:
-                label_int = int(key)
-            except ValueError:
-                label_int = abs(hash(key)) % 100000
-
+            
+            # استفاده از شمارنده برای اختصاص شناسه‌های صحیح و یکتا
+            if national_code not in national_code_to_label:
+                national_code_to_label[national_code] = label_counter
+                label_counter += 1
+            
+            label_int = national_code_to_label[national_code]
+            
             faces.append(resized_face)
             labels.append(label_int)
-            labels_to_name[label_int] = {
-                "nationalCode": data.get("nationalCode"),
-                "fullName": data.get("fullName")
+            labels_to_name[str(label_int)] = {
+                "nationalCode": national_code,
+                "fullName": data.get("fullName", "")
             }
+            logging.info(f"کد ملی {national_code} با برچسب {label_int} آماده آموزش شد.")
         except Exception as e:
             logging.error("خطا در پردازش داده‌های ذخیره‌شده برای کلید %s: %s", key, e)
             continue
@@ -200,6 +206,12 @@ def train_model():
             model_path = os.path.join("trainer", "model.xml")
             model.write(model_path)
             logging.info("مدل تشخیص چهره در %s ذخیره شد.", model_path)
+
+            # ذخیره نگاشت کد ملی به برچسب برای استفاده در تشخیص
+            mapping_path = os.path.join("labels", "label_mapping.json")
+            with open(mapping_path, 'w', encoding='utf-8') as f:
+                json.dump(national_code_to_label, f, ensure_ascii=False, indent=4)
+            logging.info("نگاشت برچسب‌ها در %s ذخیره شد.", mapping_path)
 
             labels_path = os.path.join("labels", "labels_to_name.json")
             with open(labels_path, 'w', encoding='utf-8') as f:
@@ -291,5 +303,5 @@ def get_labels():
 
 # --------------------- اجرای سرور ---------------------
 if __name__ == '__main__':
-    # اجرای فلسک در حالت تولید و با دسترسی از خارج
+    # اجرای فلسک در حالت دسترس از همه آدرس‌ها برای استفاده در داکر
     app.run(host='0.0.0.0', port=5000, debug=True)
