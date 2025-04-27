@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import cv2
 import redis
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from persiantools.jdatetime import JalaliDateTime
 import boto3
@@ -299,6 +299,41 @@ def get_labels():
     except Exception as e:
         logging.error("خطا در دریافت لیبل‌ها: %s", e)
         return jsonify({"status": "error", "message": "خطا در دریافت لیبل‌ها."}), 500
+
+
+@app.route('/model', methods=['GET'])
+def get_model():
+    """
+    دریافت مدل XML آموزش‌دیده
+    """
+    try:
+        model_path = os.path.join("trainer", "model.xml")
+        if not os.path.exists(model_path):
+            return jsonify({"status": "error", "message": "فایل مدل یافت نشد."}), 404
+
+        return send_file(model_path, mimetype='application/xml')
+    except Exception as e:
+        logging.error("خطا در دریافت مدل: %s", e)
+        return jsonify({"status": "error", "message": "خطا در دریافت مدل."}), 500
+
+
+@app.route('/label-mapping', methods=['GET'])
+def get_label_mapping():
+    """
+    دریافت فایل نگاشت برچسب‌ها
+    """
+    try:
+        mapping_path = os.path.join("labels", "label_mapping.json")
+        if not os.path.exists(mapping_path):
+            return jsonify({"status": "error", "message": "فایل نگاشت برچسب یافت نشد."}), 404
+
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            mapping_data = json.load(f)
+
+        return jsonify({"status": "success", "mapping": mapping_data})
+    except Exception as e:
+        logging.error("خطا در دریافت نگاشت برچسب‌ها: %s", e)
+        return jsonify({"status": "error", "message": "خطا در دریافت نگاشت برچسب‌ها."}), 500
 
 
 # --------------------- اجرای سرور ---------------------
