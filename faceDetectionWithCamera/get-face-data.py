@@ -301,39 +301,81 @@ def get_labels():
         return jsonify({"status": "error", "message": "خطا در دریافت لیبل‌ها."}), 500
 
 
+# --------------------- روت‌های جدید برای دسترسی به فایل مدل و لیبل‌ها ---------------------
 @app.route('/model', methods=['GET'])
 def get_model():
     """
-    دریافت مدل XML آموزش‌دیده
+    ارسال فایل مدل XML به درخواست‌کننده
     """
     try:
         model_path = os.path.join("trainer", "model.xml")
         if not os.path.exists(model_path):
             return jsonify({"status": "error", "message": "فایل مدل یافت نشد."}), 404
-
+        
         return send_file(model_path, mimetype='application/xml')
     except Exception as e:
-        logging.error("خطا در دریافت مدل: %s", e)
-        return jsonify({"status": "error", "message": "خطا در دریافت مدل."}), 500
+        logging.error("خطا در ارسال فایل مدل: %s", e)
+        return jsonify({"status": "error", "message": "خطا در ارسال فایل مدل."}), 500
 
 
 @app.route('/label-mapping', methods=['GET'])
 def get_label_mapping():
     """
-    دریافت فایل نگاشت برچسب‌ها
+    ارسال فایل نگاشت برچسب‌ها به درخواست‌کننده
     """
     try:
         mapping_path = os.path.join("labels", "label_mapping.json")
         if not os.path.exists(mapping_path):
-            return jsonify({"status": "error", "message": "فایل نگاشت برچسب یافت نشد."}), 404
-
+            return jsonify({"status": "error", "message": "فایل نگاشت برچسب‌ها یافت نشد."}), 404
+            
         with open(mapping_path, 'r', encoding='utf-8') as f:
             mapping_data = json.load(f)
-
+            
         return jsonify({"status": "success", "mapping": mapping_data})
     except Exception as e:
-        logging.error("خطا در دریافت نگاشت برچسب‌ها: %s", e)
-        return jsonify({"status": "error", "message": "خطا در دریافت نگاشت برچسب‌ها."}), 500
+        logging.error("خطا در ارسال فایل نگاشت برچسب‌ها: %s", e)
+        return jsonify({"status": "error", "message": "خطا در ارسال فایل نگاشت برچسب‌ها."}), 500
+
+
+@app.route('/labels-to-name', methods=['GET'])
+def get_labels_to_name():
+    """
+    ارسال فایل نگاشت برچسب‌ها به نام به درخواست‌کننده
+    """
+    try:
+        labels_path = os.path.join("labels", "labels_to_name.json")
+        if not os.path.exists(labels_path):
+            return jsonify({"status": "error", "message": "فایل نگاشت برچسب‌ها به نام یافت نشد."}), 404
+            
+        with open(labels_path, 'r', encoding='utf-8') as f:
+            labels_data = json.load(f)
+            
+        return jsonify({"status": "success", "labels_to_name": labels_data})
+    except Exception as e:
+        logging.error("خطا در ارسال فایل نگاشت برچسب‌ها به نام: %s", e)
+        return jsonify({"status": "error", "message": "خطا در ارسال فایل نگاشت برچسب‌ها به نام."}), 500
+
+
+@app.route('/check-model', methods=['GET'])
+def check_model_status():
+    """
+    بررسی وضعیت مدل و فایل‌های لیبل
+    """
+    try:
+        model_path = os.path.join("trainer", "model.xml")
+        mapping_path = os.path.join("labels", "label_mapping.json")
+        labels_path = os.path.join("labels", "labels_to_name.json")
+        
+        status = {
+            "model_exists": os.path.exists(model_path),
+            "mapping_exists": os.path.exists(mapping_path),
+            "labels_exists": os.path.exists(labels_path)
+        }
+        
+        return jsonify({"status": "success", "file_status": status})
+    except Exception as e:
+        logging.error("خطا در بررسی وضعیت فایل‌ها: %s", e)
+        return jsonify({"status": "error", "message": "خطا در بررسی وضعیت فایل‌ها."}), 500
 
 
 # --------------------- اجرای سرور ---------------------
