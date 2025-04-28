@@ -106,7 +106,6 @@ services:
     networks:
       - app-network
     environment:
-      - FLASK_ENV=production
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MYSQL_HOST=mysql
@@ -115,12 +114,15 @@ services:
       - MYSQL_DATABASE=mydatabase
     volumes:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-    command: ["flask", "run", "--host=0.0.0.0"]
+      - python_data:/app/trainer
+      - python_labels:/app/labels
+    command: ["python", "get-face-data.py"]
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pythonserver.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-api`)"
       - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
       - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip"
+      - "traefik.http.services.pythonserver.loadbalancer.server.port=5000"
 
   # سرویس phpMyAdmin
   phpmyadmin:
@@ -192,4 +194,6 @@ networks:
 
 volumes:
   mysql_data:
-  redis_data: 
+  redis_data:
+  python_data:
+  python_labels: 
