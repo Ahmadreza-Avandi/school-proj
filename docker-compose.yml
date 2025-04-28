@@ -118,12 +118,13 @@ services:
       - python_labels:/app/labels
     command: ["python", "get-face-data.py"]
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pythonserver.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-api`)"
-      - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
-      - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip"
-      - "traefik.http.services.pythonserver.loadbalancer.server.port=5000"
-
+    - "traefik.enable=true"
+    - "traefik.docker.network=app-network"
+    - "traefik.http.routers.pythonserver.entrypoints=websecure"
+    - "traefik.http.routers.pythonserver.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-api`)"
+    - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip@docker"
+    - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
+    - "traefik.http.services.pythonserver.loadbalancer.server.port=5000"
   # سرویس phpMyAdmin
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
