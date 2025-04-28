@@ -169,6 +169,21 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.redis-commander.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/redis-commander`)"
 
+  # سرویس Nginx برای ارائه فایل‌های مدل بدون احراز هویت
+  model-files:
+    image: nginx:alpine
+    volumes:
+      - ./faceDetectionWithCamera/trainer:/usr/share/nginx/html/trainer
+      - ./faceDetectionWithCamera/labels:/usr/share/nginx/html/labels
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.model-files.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/model-files`)"
+      - "traefik.http.routers.model-files.middlewares=model-files-strip@docker"
+      - "traefik.http.middlewares.model-files-strip.stripprefix.prefixes=/model-files"
+      - "traefik.http.services.model-files.loadbalancer.server.port=80"
+
   # سرویس Traefik برای مدیریت مسیرها
   traefik:
     image: traefik:v2.9
