@@ -488,6 +488,43 @@ def create_test_files():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
+# مسیرهای جدید برای دسترسی به فایل‌ها
+@app.route('/public-model', methods=['GET'])
+def public_model():
+    """
+    ارسال فایل مدل XML به درخواست‌کننده بدون احراز هویت
+    """
+    try:
+        model_path = os.path.join("trainer", "model.xml")
+        if not os.path.exists(model_path):
+            return jsonify({"status": "error", "message": "فایل مدل یافت نشد."}), 404
+        
+        return send_file(model_path, mimetype='application/xml')
+    except Exception as e:
+        logging.error("خطا در ارسال فایل مدل: %s", e)
+        return jsonify({"status": "error", "message": "خطا در ارسال فایل مدل."}), 500
+
+@app.route('/public-files/<path:filename>', methods=['GET'])
+def public_files(filename):
+    """
+    ارسال فایل‌ها بدون احراز هویت
+    """
+    try:
+        # ابتدا بررسی می‌کنیم فایل در پوشه trainer وجود دارد
+        trainer_path = os.path.join("trainer", filename)
+        if os.path.exists(trainer_path):
+            return send_file(trainer_path)
+        
+        # سپس بررسی می‌کنیم فایل در پوشه labels وجود دارد
+        labels_path = os.path.join("labels", filename)
+        if os.path.exists(labels_path):
+            return send_file(labels_path)
+        
+        return jsonify({"status": "error", "message": f"فایل {filename} یافت نشد."}), 404
+    except Exception as e:
+        logging.error(f"خطا در ارسال فایل {filename}: {e}")
+        return jsonify({"status": "error", "message": f"خطا در ارسال فایل {filename}"}), 500
+
 # --------------------- اجرای سرور ---------------------
 if __name__ == '__main__':
     # اجرای فلسک در حالت دسترس از همه آدرس‌ها برای استفاده در داکر
