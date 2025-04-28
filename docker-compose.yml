@@ -116,6 +116,8 @@ services:
       - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
       - python_data:/app/trainer
       - python_labels:/app/labels
+      - ./faceDetectionWithCamera/trainer:/app/trainer
+      - ./faceDetectionWithCamera/labels:/app/labels
     command: ["python", "get-face-data.py"]
     labels:
     - "traefik.enable=true"
