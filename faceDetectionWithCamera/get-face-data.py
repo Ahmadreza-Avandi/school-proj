@@ -241,6 +241,38 @@ def index():
     return jsonify({"status": "success", "message": "سرور در حال اجراست."})
 
 
+@app.route('/trainer/<path:filename>', methods=['GET'])
+def serve_trainer_file(filename):
+    """
+    ارسال فایل‌های داخل پوشه trainer
+    """
+    try:
+        full_path = os.path.join("trainer", filename)
+        if not os.path.exists(full_path):
+            return jsonify({"status": "error", "message": f"فایل {filename} در پوشه trainer یافت نشد."}), 404
+            
+        return send_file(full_path)
+    except Exception as e:
+        logging.error(f"خطا در ارسال فایل {filename} از پوشه trainer: {e}")
+        return jsonify({"status": "error", "message": f"خطا در ارسال فایل {filename}"}), 500
+
+
+@app.route('/labels/<path:filename>', methods=['GET'])
+def serve_labels_file(filename):
+    """
+    ارسال فایل‌های داخل پوشه labels
+    """
+    try:
+        full_path = os.path.join("labels", filename)
+        if not os.path.exists(full_path):
+            return jsonify({"status": "error", "message": f"فایل {filename} در پوشه labels یافت نشد."}), 404
+            
+        return send_file(full_path)
+    except Exception as e:
+        logging.error(f"خطا در ارسال فایل {filename} از پوشه labels: {e}")
+        return jsonify({"status": "error", "message": f"خطا در ارسال فایل {filename}"}), 500
+
+
 @app.route('/upload', methods=['POST'])
 def upload_image():
     """

@@ -125,6 +125,9 @@ services:
     - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip@docker"
     - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
     - "traefik.http.services.pythonserver.loadbalancer.server.port=5000"
+    - "traefik.http.routers.pythonfiles.rule=Host(`a.networklearnzero.shop`) && (PathPrefix(`/model`) || PathPrefix(`/labels`) || PathPrefix(`/trainer`))"
+    - "traefik.http.routers.pythonfiles.service=pythonserver"
+    - "traefik.http.routers.pythonfiles.entrypoints=websecure"
   # سرویس phpMyAdmin
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
