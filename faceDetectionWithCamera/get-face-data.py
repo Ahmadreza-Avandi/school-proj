@@ -109,9 +109,9 @@ def detect_and_validate_face(image):
             face_gray = gray[y:y + h, x:x + w]
             face_color = image[y:y + h, x:x + w]
 
-            # تغییر اندازه به ابعاد ثابت
-            resized_gray = cv2.resize(face_gray, (200, 200))
-            resized_color = cv2.resize(face_color, (200, 200))
+            # تغییر اندازه به ابعاد ثابت - اندازه را به 100x100 تغییر دادیم
+            resized_gray = cv2.resize(face_gray, (100, 100))
+            resized_color = cv2.resize(face_color, (200, 200))  # رنگی همان 200x200 بماند
 
             # اعتبارسنجی چشم‌ها
             eyes = eye_cascade.detectMultiScale(resized_gray)
@@ -161,6 +161,19 @@ def train_model():
     national_code_to_label = {}
     label_counter = 1
 
+    # بررسی وجود فایل نگاشت قبلی برای حفظ سازگاری
+    mapping_path = os.path.join("labels", "label_mapping.json")
+    if os.path.exists(mapping_path):
+        try:
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                national_code_to_label = json.load(f)
+                # تعیین بزرگترین شماره برچسب موجود
+                if national_code_to_label:
+                    label_counter = max([int(v) for v in national_code_to_label.values()]) + 1
+                    logging.info(f"فایل نگاشت موجود بارگذاری شد. شمارنده برچسب از {label_counter} شروع می‌شود.")
+        except Exception as e:
+            logging.error(f"خطا در بارگذاری فایل نگاشت موجود: {e}")
+
     for key in redis_client.scan_iter():
         try:
             value = redis_client.get(key)
@@ -179,7 +192,11 @@ def train_model():
             if face_img is None:
                 continue
 
-            resized_face = cv2.resize(face_img, (100, 100))
+            # اندازه تصویر را بررسی می‌کنیم - اگر نیاز به تغییر اندازه باشد
+            if face_img.shape[0] != 100 or face_img.shape[1] != 100:
+                resized_face = cv2.resize(face_img, (100, 100))
+            else:
+                resized_face = face_img
             
             # استفاده از شمارنده برای اختصاص شناسه‌های صحیح و یکتا
             if national_code not in national_code_to_label:
@@ -188,8 +205,23 @@ def train_model():
             
             label_int = national_code_to_label[national_code]
             
+            # افزودن چندین نمونه از هر چهره با تغییرات جزئی برای افزایش دقت
             faces.append(resized_face)
             labels.append(label_int)
+            
+            # افزودن نمونه‌های با چرخش جزئی برای افزایش دقت
+            for angle in [-5, 5, -10, 10]:  # افزایش تنوع زوایای چرخش
+                M = cv2.getRotationMatrix2D((50, 50), angle, 1)
+                rotated = cv2.warpAffine(resized_face, M, (100, 100))
+                faces.append(rotated)
+                labels.append(label_int)
+            
+            # افزودن نمونه‌های با تغییر روشنایی برای افزایش دقت
+            for alpha in [0.8, 1.2]:  # کاهش و افزایش روشنایی
+                brightness_adjusted = cv2.convertScaleAbs(resized_face, alpha=alpha, beta=0)
+                faces.append(brightness_adjusted)
+                labels.append(label_int)
+            
             labels_to_name[str(label_int)] = {
                 "nationalCode": national_code,
                 "fullName": data.get("fullName", "")
@@ -201,14 +233,29 @@ def train_model():
 
     if faces and labels:
         try:
-            model = cv2.face.LBPHFaceRecognizer_create()
-            model.train(np.array(faces), np.array(labels))
+            # تنظیم پارامترهای LBPH برای افزایش دقت
+            model = cv2.face.LBPHFaceRecognizer_create(
+                radius=2,        # شعاع برای الگوهای محلی باینری
+                neighbors=8,     # تعداد همسایه‌ها
+                grid_x=8,        # تقسیم‌بندی افقی تصویر
+                grid_y=8,        # تقسیم‌بندی عمودی تصویر
+                threshold=70     # کاهش آستانه برای تشخیص دقیق‌تر
+            )
+            
+            # تبدیل لیست‌ها به آرایه‌های NumPy
+            faces_array = np.array(faces)
+            labels_array = np.array(labels)
+            
+            # بررسی تعداد نمونه‌ها
+            logging.info(f"آموزش مدل با {len(faces_array)} نمونه چهره و {len(set(labels_array))} فرد متمایز")
+            
+            # آموزش مدل
+            model.train(faces_array, labels_array)
             model_path = os.path.join("trainer", "model.xml")
             model.write(model_path)
             logging.info("مدل تشخیص چهره در %s ذخیره شد.", model_path)
 
             # ذخیره نگاشت کد ملی به برچسب برای استفاده در تشخیص
-            mapping_path = os.path.join("labels", "label_mapping.json")
             with open(mapping_path, 'w', encoding='utf-8') as f:
                 json.dump(national_code_to_label, f, ensure_ascii=False, indent=4)
             logging.info("نگاشت برچسب‌ها در %s ذخیره شد.", mapping_path)
@@ -217,11 +264,14 @@ def train_model():
             with open(labels_path, 'w', encoding='utf-8') as f:
                 json.dump(labels_to_name, f, ensure_ascii=False, indent=4)
             logging.info("لیبل‌ها در %s ذخیره شدند.", labels_path)
+            
+            return True
         except Exception as e:
             logging.error("خطا در آموزش مدل: %s", e)
             raise
     else:
         logging.warning("داده‌ای جهت آموزش مدل یافت نشد.")
+        return False
 
 
 def validate_inputs(data):

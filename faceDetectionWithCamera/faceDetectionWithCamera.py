@@ -9,6 +9,9 @@ import os
 import json
 import requests
 import tempfile
+import paramiko
+import time
+import shutil
 from datetime import datetime
 from persiantools.jdatetime import JalaliDateTime
 import schedule
@@ -33,6 +36,107 @@ DB_CONFIG = {
     'password': os.environ.get("MYSQL_PASSWORD", ""),
 }
 
+# --------------------- تنظیمات دسترسی به سرور و داکر ---------------------
+VPS_CONFIG = {
+    'host': '91.107.165.2',
+    'username': 'root',
+    'password': 'zerok1385',
+    'docker_container': 'school-proj_pythonserver_1',  # نام کانتینر پایتون
+    'model_path': '/app/trainer/model.xml',            # مسیر فایل مدل در کانتینر
+    'label_mapping_path': '/app/labels/label_mapping.json',  # مسیر فایل نگاشت برچسب‌ها
+    'labels_to_name_path': '/app/labels/labels_to_name.json'  # مسیر فایل نگاشت برچسب‌ها به نام
+}
+
+# --------------------- کلاس دانلود فایل‌های از VPS ---------------------
+class ModelDownloader:
+    def __init__(self, config):
+        self.config = config
+        self.ssh_client = None
+        # حذف مسیر downloaded_models
+        # os.makedirs(self.local_dir, exist_ok=True)
+
+    def connect(self):
+        """Establish SSH connection to the server"""
+        try:
+            self.ssh_client = paramiko.SSHClient()
+            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.ssh_client.connect(
+                hostname=self.config['host'],
+                username=self.config['username'],
+                password=self.config['password'],
+                timeout=10
+            )
+            logger.info("SSH connection to server established successfully.")
+            return True
+        except Exception as e:
+            logger.error("Error establishing SSH connection to server: %s", e)
+            return False
+
+    def download_file_from_container(self, container_path, local_path):
+        """دانلود فایل از کانتینر داکر به مسیر دلخواه"""
+        if not self.ssh_client:
+            if not self.connect():
+                return None
+
+        try:
+            temp_dir = "/tmp"
+            remote_temp_file = f"{temp_dir}/{os.path.basename(container_path)}"
+            docker_cp_cmd = f"docker cp {self.config['docker_container']}:{container_path} {remote_temp_file}"
+            stdin, stdout, stderr = self.ssh_client.exec_command(docker_cp_cmd)
+            exit_status = stdout.channel.recv_exit_status()
+
+            if exit_status != 0:
+                error = stderr.read().decode('utf-8')
+                logger.error("خطا در کپی فایل از کانتینر: %s", error)
+                return None
+
+            # دانلود فایل از سرور به سیستم محلی با SFTP
+            sftp = self.ssh_client.open_sftp()
+            sftp.get(remote_temp_file, local_path)
+            sftp.close()
+
+            self.ssh_client.exec_command(f"rm {remote_temp_file}")
+
+            logger.info("فایل %s با موفقیت دانلود شد.", os.path.basename(local_path))
+            return local_path
+        except Exception as e:
+            logger.error("خطا در دانلود فایل %s: %s", local_path, e)
+            return None
+
+    def download_all_model_files(self):
+        """دانلود تمام فایل‌های مدل از کانتینر به مسیرهای اصلی پروژه"""
+        if not self.connect():
+            return None, None, None
+
+        try:
+            # مسیرهای مقصد جدین
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = self.download_file_from_container(
+                self.config['model_path'],
+                os.path.join(base_dir, 'trainer', 'model.xml')
+            )
+            mapping_path = self.download_file_from_container(
+                self.config['label_mapping_path'],
+                os.path.join(base_dir, 'labels', 'label_mapping.json')
+            )
+            labels_path = self.download_file_from_container(
+                self.config['labels_to_name_path'],
+                os.path.join(base_dir, 'labels', 'labels_to_name.json')
+            )
+
+            self.disconnect()
+            return model_path, mapping_path, labels_path
+        except Exception as e:
+            logger.error("خطا در دانلود فایل‌های مدل: %s", e)
+            self.disconnect()
+            return None, None, None
+
+    def disconnect(self):
+        """قطع اتصال SSH"""
+        if self.ssh_client:
+            self.ssh_client.close()
+            self.ssh_client = None
+
 # --------------------- کلاس مدیریت دوربین‌ها ---------------------
 class CameraManager:
     def __init__(self):
@@ -42,7 +146,7 @@ class CameraManager:
         self.window_name = "Face Recognition System"
         self.last_click = 0
         self.click_delay = 500   # میلی‌ثانیه
-
+    
         # دیکشنری روزهای هفته فارسی
         self.persian_days = {
             0: "شنبه",
@@ -53,127 +157,140 @@ class CameraManager:
             5: "پنج‌شنبه",
             6: "جمعه"
         }
-
+    
         # بارگذاری Haar Cascade جهت تشخیص چهره
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
-
-        # دریافت و بارگذاری مدل تشخیص چهره از سرور
-        self.face_recognizer = self.load_model_from_server()
+    
+        # ایجاد دانلودر برای فایل‌های مدل از VPS
+        self.downloader = ModelDownloader(VPS_CONFIG)
         
-        # دریافت فایل label_mapping از سرور
-        self.label_mapping = self.load_label_mapping_from_server()
+        # ابتدا سعی می‌کنیم از API دریافت کنیم، اگر موفق نبود از VPS استفاده می‌کنیم
+        logger.info("تلاش برای دریافت مدل از API...")
+        self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_api()
         
-        # دریافت فایل labels_to_name از سرور
-        self.labels_to_name = self.load_labels_to_name_from_server()
+        # اگر دریافت از API موفق نبود، از VPS استفاده می‌کنیم
+        if self.face_recognizer is None:
+            logger.info("دریافت از API ناموفق بود، تلاش برای دریافت از VPS...")
+            self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_vps()
+    
+            # اتصال به دیتابیس MySQL
+            try:
+                self.db = mysql.connector.connect(**DB_CONFIG)
+                logger.info("اتصال به دیتابیس MySQL برقرار شد.")
+            except mysql.connector.Error as err:
+                logger.error("خطا در اتصال به دیتابیس: %s", err)
+                self.db = None
+    
+            # اتصال به Redis (اختیاری)
+            try:
+                self.redis_db = redis.StrictRedis(
+                    host=os.environ.get("REDIS_HOST", "localhost"), 
+                    port=int(os.environ.get("REDIS_PORT", "6379")), 
+                    db=0, 
+                    decode_responses=True
+                )
+                logger.info("اتصال به Redis برقرار شد.")
+            except Exception as e:
+                logger.error("خطا در اتصال به Redis: %s", e)
+                self.redis_db = None
+    
+            # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
+            self.last_checkin = {}
+    
+            # زمانبندی بررسی بروزرسانی‌های مدل - هر 30 دقیقه یکبار
+            schedule.every(30).minutes.do(self.check_for_model_updates)
 
-        # اتصال به دیتابیس MySQL
-        try:
-            self.db = mysql.connector.connect(**DB_CONFIG)
-            logger.info("اتصال به دیتابیس MySQL برقرار شد.")
-        except mysql.connector.Error as err:
-            logger.error("خطا در اتصال به دیتابیس: %s", err)
-            self.db = None
-
-        # اتصال به Redis (اختیاری)
-        try:
-            self.redis_db = redis.StrictRedis(
-                host=os.environ.get("REDIS_HOST", "localhost"), 
-                port=int(os.environ.get("REDIS_PORT", "6379")), 
-                db=0, 
-                decode_responses=True
-            )
-            logger.info("اتصال به Redis برقرار شد.")
-        except Exception as e:
-            logger.error("خطا در اتصال به Redis: %s", e)
-            self.redis_db = None
-
-        # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
-        self.last_checkin = {}
+    def load_model_from_vps(self):
+        """دریافت مدل و فایل‌های مرتبط از VPS و بارگذاری آنها"""
+        model_path, mapping_path, labels_path = self.downloader.download_all_model_files()
         
-        # زمانبندی بررسی بروزرسانی‌های مدل
-        schedule.every(10).minutes.do(self.check_for_model_updates)
+        # بارگذاری مدل تشخیص چهره
+        face_recognizer = None
+        if model_path and os.path.exists(model_path):
+            try:
+                if not hasattr(cv2, 'face'):
+                    raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
+                face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+                face_recognizer.read(model_path)
+                logger.info("مدل تشخیص چهره از VPS بارگذاری شد.")
+            except Exception as e:
+                logger.error("خطا در بارگذاری مدل تشخیص چهره: %s", e)
+        
+        # بارگذاری نگاشت برچسب‌ها
+        label_mapping = {}
+        if mapping_path and os.path.exists(mapping_path):
+            try:
+                with open(mapping_path, 'r', encoding='utf-8') as f:
+                    label_mapping = json.load(f)
+                logger.info("فایل نگاشت برچسب‌ها از VPS بارگذاری شد.")
+            except Exception as e:
+                logger.error("خطا در بارگذاری نگاشت برچسب‌ها: %s", e)
+        
+        # بارگذاری نگاشت برچسب‌ها به نام
+        labels_to_name = {}
+        if labels_path and os.path.exists(labels_path):
+            try:
+                with open(labels_path, 'r', encoding='utf-8') as f:
+                    labels_to_name = json.load(f)
+                logger.info("فایل نگاشت برچسب‌ها به نام از VPS بارگذاری شد.")
+            except Exception as e:
+                logger.error("خطا در بارگذاری نگاشت برچسب‌ها به نام: %s", e)
+        
+        return face_recognizer, label_mapping, labels_to_name
 
     def check_for_model_updates(self):
-        """بررسی و دریافت بروزرسانی‌های مدل از سرور"""
+        """بررسی و دریافت بروزرسانی‌های مدل از API"""
         try:
-            logger.info("بررسی بروزرسانی‌های مدل...")
-            face_recognizer = self.load_model_from_server()
-            if face_recognizer is not None:
-                self.face_recognizer = face_recognizer
-                self.label_mapping = self.load_label_mapping_from_server()
-                self.labels_to_name = self.load_labels_to_name_from_server()
-                logger.info("مدل و لیبل‌ها با موفقیت بروزرسانی شدند.")
+            logger.info("بررسی بروزرسانی‌های مدل از API...")
+            
+            # بررسی وضعیت فایل‌ها در سرور
+            check_url = f"{API_BASE_URL}/check-model"
+            response = requests.get(check_url)
+            
+            if response.status_code != 200:
+                logger.error("خطا در بررسی وضعیت مدل: کد وضعیت %s", response.status_code)
+                return
+            
+            data = response.json()
+            if data.get("status") != "success":
+                logger.error("خطا در بررسی وضعیت مدل: %s", data.get("message", "خطای نامشخص"))
+                return
+            
+            file_status = data.get("file_status", {})
+            
+            # اگر همه فایل‌ها در سرور موجود باشند، آنها را دانلود می‌کنیم
+            if file_status.get("model_exists") and file_status.get("mapping_exists") and file_status.get("labels_exists"):
+                face_recognizer, label_mapping, labels_to_name = self.load_model_from_api()
+                
+                if face_recognizer is not None:
+                    self.face_recognizer = face_recognizer
+                    self.label_mapping = label_mapping
+                    self.labels_to_name = labels_to_name
+                    logger.info("مدل و فایل‌های مرتبط با موفقیت بروزرسانی شدند.")
+                else:
+                    logger.warning("بروزرسانی مدل ناموفق بود.")
+            else:
+                logger.warning("برخی از فایل‌های مورد نیاز در سرور موجود نیستند.")
+        
         except Exception as e:
-            logger.error("خطا در بروزرسانی مدل: %s", e)
+            logger.error("خطا در بررسی بروزرسانی‌های مدل: %s", e)
 
     def load_model_from_server(self):
-        """دریافت مدل XML از سرور و بارگذاری آن"""
-        try:
-            if not hasattr(cv2, 'face'):
-                raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
-            
-            # بررسی وضعیت مدل در سرور
-            status_response = requests.get(f"{API_BASE_URL}/check-model")
-            status_data = status_response.json()
-            
-            if not status_data.get("file_status", {}).get("model_exists", False):
-                logger.error("مدل در سرور یافت نشد.")
-                return None
-            
-            # دریافت فایل مدل
-            model_response = requests.get(f"{API_BASE_URL}/model")
-            if model_response.status_code != 200:
-                logger.error("خطا در دریافت مدل از سرور: %s", model_response.text)
-                return None
-            
-            # ذخیره موقت مدل دریافتی
-            temp_model_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xml')
-            temp_model_path = temp_model_file.name
-            temp_model_file.write(model_response.content)
-            temp_model_file.close()
-            
-            # بارگذاری مدل
-            face_recognizer = cv2.face.LBPHFaceRecognizer_create()
-            face_recognizer.read(temp_model_path)
-            
-            # پاکسازی فایل موقت
-            os.unlink(temp_model_path)
-            
-            logger.info("مدل تشخیص چهره از سرور بارگذاری شد.")
-            return face_recognizer
-        except Exception as e:
-            logger.error("خطا در بارگذاری مدل تشخیص چهره از سرور: %s", e)
-            return None
-
+        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
+        logger.info("استفاده از روش جدید بارگذاری مدل از VPS")
+        return None
+        
     def load_label_mapping_from_server(self):
-        """دریافت نگاشت برچسب‌ها از سرور"""
-        try:
-            response = requests.get(f"{API_BASE_URL}/label-mapping")
-            if response.status_code != 200:
-                logger.error("خطا در دریافت نگاشت برچسب‌ها از سرور: %s", response.text)
-                return {}
-            
-            data = response.json()
-            return data.get("mapping", {})
-        except Exception as e:
-            logger.error("خطا در دریافت نگاشت برچسب‌ها از سرور: %s", e)
-            return {}
-
+        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
+        logger.info("استفاده از روش جدید بارگذاری نگاشت برچسب‌ها از VPS")
+        return {}
+        
     def load_labels_to_name_from_server(self):
-        """دریافت نگاشت برچسب‌ها به نام از سرور"""
-        try:
-            response = requests.get(f"{API_BASE_URL}/labels-to-name")
-            if response.status_code != 200:
-                logger.error("خطا در دریافت نگاشت برچسب‌ها به نام از سرور: %s", response.text)
-                return {}
-            
-            data = response.json()
-            return data.get("labels_to_name", {})
-        except Exception as e:
-            logger.error("خطا در دریافت نگاشت برچسب‌ها به نام از سرور: %s", e)
-            return {}
+        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
+        logger.info("استفاده از روش جدید بارگذاری نگاشت برچسب‌ها به نام از VPS")
+        return {}
 
     def add_camera(self, name, source, location):
         """
@@ -342,7 +459,7 @@ class CameraManager:
                     logger.info(f"حضور برای {full_name} در کلاس {class_name} ثبت شد")
                 
                 # آپدیت last_seen
-                self.update_last_seen(national_code, full_name, now, class_name or location)
+                self.update_last_seen(national_code, full_name, timestamp, location)
                 
         except mysql.connector.Error as err:
             logger.error(f"خطای دیتابیس: {err}")
@@ -472,3 +589,94 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def detect_and_recognize_faces(self, frame, camera_index):
+    """تشخیص و شناسایی چهره‌ها در فریم"""
+    if self.face_recognizer is None:
+        return frame, []
+
+    # تبدیل به خاکستری
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # بهبود کنتراست تصویر برای دوربین‌های مداربسته
+    gray = cv2.equalizeHist(gray)
+    
+    # تشخیص چهره‌ها
+    faces = self.face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.2,  # کاهش مقدار برای تشخیص بهتر چهره‌های کوچک
+        minNeighbors=5,
+        minSize=(30, 30),
+        flags=cv2.CASCADE_SCALE_IMAGE
+    )
+    
+    recognized_faces = []
+    
+    for (x, y, w, h) in faces:
+        # برش چهره
+        face_gray = gray[y:y+h, x:x+w]
+        
+        # تغییر اندازه به 100x100 (همان اندازه‌ای که مدل با آن آموزش دیده)
+        face_resized = cv2.resize(face_gray, (100, 100))
+        
+        # شناسایی چهره
+        try:
+            label, confidence = self.face_recognizer.predict(face_resized)
+            label_str = str(label)
+            
+            # تبدیل برچسب عددی به کد ملی
+            national_code = None
+            for nc, lbl in self.label_mapping.items():
+                if int(lbl) == label:
+                    national_code = nc
+                    break
+            
+            # دریافت اطلاعات کاربر
+            user_info = self.labels_to_name.get(label_str, {})
+            full_name = user_info.get("fullName", "ناشناس")
+            
+            # آستانه اطمینان - مقدار کمتر یعنی تطابق بیشتر
+            threshold = 80  # می‌توانید این مقدار را تنظیم کنید
+            
+            if confidence < threshold and national_code:
+                # رنگ کادر بر اساس میزان اطمینان
+                # هرچه اطمینان بیشتر (confidence کمتر)، رنگ سبزتر
+                confidence_normalized = min(confidence / threshold, 1.0)
+                box_color = (
+                    0,  # آبی
+                    int(255 * (1 - confidence_normalized)),  # سبز
+                    int(255 * confidence_normalized)  # قرمز
+                )
+                
+                # رسم کادر دور چهره
+                cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
+                
+                # نمایش نام و میزان اطمینان
+                confidence_text = f"{int(100 - confidence)}%"
+                label_text = f"{full_name} ({confidence_text})"
+                
+                # رسم پس‌زمینه برای متن
+                cv2.rectangle(frame, (x, y-30), (x+w, y), box_color, -1)
+                cv2.putText(frame, label_text, (x+5, y-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                
+                # ثبت حضور
+                self.register_attendance(national_code, full_name, camera_index, confidence)
+                
+                recognized_faces.append({
+                    "nationalCode": national_code,
+                    "fullName": full_name,
+                    "confidence": confidence,
+                    "position": (x, y, w, h)
+                })
+            else:
+                # چهره ناشناس
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                cv2.putText(frame, "ناشناس", (x+5, y-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        except Exception as e:
+            logger.error("خطا در شناسایی چهره: %s", e)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
+    
+    return frame, recognized_faces
