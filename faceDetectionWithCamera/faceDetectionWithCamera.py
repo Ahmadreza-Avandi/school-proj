@@ -109,19 +109,30 @@ class ModelDownloader:
             return None, None, None
 
         try:
-            # مسیرهای مقصد جدین
+            # ایجاد پوشه‌های مورد نیاز
             base_dir = os.path.dirname(os.path.abspath(__file__))
+            trainer_dir = os.path.join(base_dir, 'trainer')
+            labels_dir = os.path.join(base_dir, 'labels')
+            
+            os.makedirs(trainer_dir, exist_ok=True)
+            os.makedirs(labels_dir, exist_ok=True)
+            
+            # مسیرهای مقصد
             model_path = self.download_file_from_container(
                 self.config['model_path'],
-                os.path.join(base_dir, 'trainer', 'model.xml')
+                os.path.join(trainer_dir, 'model.xml')
             )
-            mapping_path = self.download_file_from_container(
-                self.config['label_mapping_path'],
-                os.path.join(base_dir, 'labels', 'label_mapping.json')
-            )
+            
+            # اگر فایل label_mapping.json وجود ندارد، یک فایل خالی ایجاد می‌کنیم
+            mapping_path = os.path.join(labels_dir, 'label_mapping.json')
+            if not os.path.exists(mapping_path):
+                with open(mapping_path, 'w', encoding='utf-8') as f:
+                    json.dump({}, f)
+                logger.info("فایل label_mapping.json ایجاد شد.")
+            
             labels_path = self.download_file_from_container(
                 self.config['labels_to_name_path'],
-                os.path.join(base_dir, 'labels', 'labels_to_name.json')
+                os.path.join(labels_dir, 'labels_to_name.json')
             )
 
             self.disconnect()
@@ -146,6 +157,9 @@ class CameraManager:
         self.window_name = "Face Recognition System"
         self.last_click = 0
         self.click_delay = 500   # میلی‌ثانیه
+        
+        # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
+        self.last_checkin = {}
     
         # دیکشنری روزهای هفته فارسی
         self.persian_days = {
@@ -166,22 +180,22 @@ class CameraManager:
         # ایجاد دانلودر برای فایل‌های مدل از VPS
         self.downloader = ModelDownloader(VPS_CONFIG)
         
-        # ابتدا سعی می‌کنیم از API دریافت کنیم، اگر موفق نبود از VPS استفاده می‌کنیم
-        logger.info("تلاش برای دریافت مدل از API...")
-        self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_api()
+        # ایجاد پوشه‌های مورد نیاز
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(os.path.join(base_dir, 'trainer'), exist_ok=True)
+        os.makedirs(os.path.join(base_dir, 'labels'), exist_ok=True)
         
-        # اگر دریافت از API موفق نبود، از VPS استفاده می‌کنیم
-        if self.face_recognizer is None:
-            logger.info("دریافت از API ناموفق بود، تلاش برای دریافت از VPS...")
-            self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_vps()
-    
-            # اتصال به دیتابیس MySQL
-            try:
-                self.db = mysql.connector.connect(**DB_CONFIG)
-                logger.info("اتصال به دیتابیس MySQL برقرار شد.")
-            except mysql.connector.Error as err:
-                logger.error("خطا در اتصال به دیتابیس: %s", err)
-                self.db = None
+        # ابتدا سعی می‌کنیم از VPS دریافت کنیم
+        logger.info("تلاش برای دریافت مدل از VPS...")
+        self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_vps()
+        
+        # اتصال به دیتابیس MySQL
+        try:
+            self.db = mysql.connector.connect(**DB_CONFIG)
+            logger.info("اتصال به دیتابیس MySQL برقرار شد.")
+        except mysql.connector.Error as err:
+            logger.error("خطا در اتصال به دیتابیس: %s", err)
+            self.db = None
     
             # اتصال به Redis (اختیاری)
             try:
@@ -196,14 +210,11 @@ class CameraManager:
                 logger.error("خطا در اتصال به Redis: %s", e)
                 self.redis_db = None
     
-            # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
-            self.last_checkin = {}
-    
-            # زمانبندی بررسی بروزرسانی‌های مدل - هر 30 دقیقه یکبار
-            schedule.every(30).minutes.do(self.check_for_model_updates)
+                # زمانبندی بررسی بروزرسانی‌های مدل - هر 30 دقیقه یکبار
+                schedule.every(30).minutes.do(self.check_for_model_updates)
 
     def load_model_from_vps(self):
-        """دریافت مدل و فایل‌های مرتبط از VPS و بارگذاری آنها"""
+        """دریافت مدل و فایل‌های مربوطه از VPS"""
         model_path, mapping_path, labels_path = self.downloader.download_all_model_files()
         
         # بارگذاری مدل تشخیص چهره
@@ -220,21 +231,29 @@ class CameraManager:
         
         # بارگذاری نگاشت برچسب‌ها
         label_mapping = {}
-        if mapping_path and os.path.exists(mapping_path):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        mapping_path = os.path.join(base_dir, 'labels', 'label_mapping.json')
+        if os.path.exists(mapping_path):
             try:
                 with open(mapping_path, 'r', encoding='utf-8') as f:
                     label_mapping = json.load(f)
-                logger.info("فایل نگاشت برچسب‌ها از VPS بارگذاری شد.")
+                logger.info("فایل نگاشت برچسب‌ها بارگذاری شد.")
             except Exception as e:
                 logger.error("خطا در بارگذاری نگاشت برچسب‌ها: %s", e)
+        else:
+            # ایجاد فایل خالی
+            with open(mapping_path, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+            logger.info("فایل نگاشت برچسب‌ها ایجاد شد.")
         
         # بارگذاری نگاشت برچسب‌ها به نام
         labels_to_name = {}
+        labels_path = os.path.join(base_dir, 'labels', 'labels_to_name.json')
         if labels_path and os.path.exists(labels_path):
             try:
                 with open(labels_path, 'r', encoding='utf-8') as f:
                     labels_to_name = json.load(f)
-                logger.info("فایل نگاشت برچسب‌ها به نام از VPS بارگذاری شد.")
+                logger.info("فایل نگاشت برچسب‌ها به نام بارگذاری شد.")
             except Exception as e:
                 logger.error("خطا در بارگذاری نگاشت برچسب‌ها به نام: %s", e)
         
@@ -329,31 +348,58 @@ class CameraManager:
     def process_faces(self, frame, location):
         """
         پردازش فریم:
-          - تبدیل به تصویر خاکستری.
-          - تشخیص چهره‌ها.
+          - تبدیل به تصویر خاکستری و بهبود کنتراست.
+          - تشخیص چهره‌ها با پارامترهای بهینه‌شده.
           - در صورت کوچک بودن چهره (به علت فاصله از لنز) تصویر چهره بزرگ‌نمایی می‌شود.
           - پیش‌بینی برچسب با استفاده از مدل آموزش‌دیده.
           - ثبت حضور در صورت تشخیص با اطمینان کافی.
         """
+        # تبدیل به تصویر خاکستری
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(20, 20))
+        
+        # بهبود کنتراست تصویر برای تشخیص بهتر چهره
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = clahe.apply(gray)
+        
+        # استفاده از پارامترهای بهینه‌شده برای تشخیص چهره‌های دور
+        faces = self.face_cascade.detectMultiScale(
+            enhanced_gray, 
+            scaleFactor=1.2, 
+            minNeighbors=5, 
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
+        
         for (x, y, w, h) in faces:
+            # کشیدن کادر دور چهره
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            face_roi = gray[y:y+h, x:x+w]
+            
+            # برش چهره از تصویر اصلی
+            face_roi = enhanced_gray[y:y+h, x:x+w]
 
             # اگر چهره کوچک باشد، بزرگ‌نمایی می‌شود
             if w < 100 or h < 100:
                 try:
-                    face_roi = cv2.resize(face_roi, (w*2, h*2), interpolation=cv2.INTER_CUBIC)
+                    face_roi = cv2.resize(face_roi, (100, 100), interpolation=cv2.INTER_CUBIC)
                 except Exception as e:
                     logger.error("خطا در بزرگنمایی تصویر چهره: %s", e)
+            else:
+                # تغییر اندازه به ابعاد ثابت برای یکنواختی
+                face_roi = cv2.resize(face_roi, (100, 100))
+            
+            # نرمال‌سازی روشنایی
+            face_roi = cv2.equalizeHist(face_roi)
 
             if self.face_recognizer is not None:
                 try:
                     label, confidence = self.face_recognizer.predict(face_roi)
-                    # تنظیم آستانه دقت (مثلاً confidence کمتر از 100)
-                    if confidence < 100:
+                    
+                    # نمایش اطلاعات تشخیص روی تصویر
+                    confidence_text = f"Conf: {confidence:.1f}"
+                    cv2.putText(frame, confidence_text, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    
+                    # تنظیم آستانه دقت (مثلاً confidence کمتر از 80 برای دقت بیشتر)
+                    if confidence < 80:
                         # استخراج کد ملی از برچسب
                         national_code = None
                         for nc, lbl in self.label_mapping.items():
@@ -362,13 +408,24 @@ class CameraManager:
                                 break
                         
                         if national_code:
-                            self.log_attendance(national_code, location)
+                            # بررسی آیا این فرد در دیکشنری last_checkin وجود دارد
+                            current_time = time.time()
+                            if national_code in self.last_checkin:
+                                # اگر بیش از 2 ساعت از آخرین ثبت حضور گذشته باشد، مجدداً ثبت می‌کنیم
+                                if current_time - self.last_checkin[national_code] > 7200:  # 2 ساعت = 7200 ثانیه
+                                    self.log_attendance(national_code, location)
+                                    self.last_checkin[national_code] = current_time
+                            else:
+                                # اولین بار است که این فرد را می‌بینیم
+                                self.log_attendance(national_code, location)
+                                self.last_checkin[national_code] = current_time
                         else:
                             logger.warning(f"برچسب {label} در نگاشت یافت نشد.")
                     else:
                         logger.debug("چهره با دقت کافی شناسایی نشد (confidence: %s).", confidence)
                 except Exception as e:
                     logger.error("خطا در پیش‌بینی چهره: %s", e)
+        
         return cv2.resize(frame, (640, 480))
 
     def log_attendance(self, national_code, location):
@@ -459,7 +516,8 @@ class CameraManager:
                     logger.info(f"حضور برای {full_name} در کلاس {class_name} ثبت شد")
                 
                 # آپدیت last_seen
-                self.update_last_seen(national_code, full_name, timestamp, location)
+                jalali_datetime = jalali_date.strftime("%Y/%m/%d %H:%M:%S")
+                self.update_last_seen(national_code, full_name, jalali_datetime, location)
                 
         except mysql.connector.Error as err:
             logger.error(f"خطای دیتابیس: {err}")
@@ -680,3 +738,119 @@ def detect_and_recognize_faces(self, frame, camera_index):
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
     
     return frame, recognized_faces
+
+# Add this method to the CameraManager class after the __init__ method
+def load_model_from_api(self):
+    """دریافت مدل و فایل‌های مربوطه از API با مکانیزم بهینه‌شده"""
+    try:
+        # ایجاد پوشه‌های مورد نیاز
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        trainer_dir = os.path.join(base_dir, 'trainer')
+        labels_dir = os.path.join(base_dir, 'labels')
+        
+        os.makedirs(trainer_dir, exist_ok=True)
+        os.makedirs(labels_dir, exist_ok=True)
+        
+        # مسیرهای فایل‌های محلی
+        model_path = os.path.join(trainer_dir, 'model.xml')
+        mapping_path = os.path.join(labels_dir, 'label_mapping.json')
+        labels_path = os.path.join(labels_dir, 'labels_to_name.json')
+        
+        # بررسی وضعیت فایل‌ها در سرور قبل از دانلود
+        check_url = f"{API_BASE_URL}/check-model"
+        try:
+            response = requests.get(check_url, timeout=5)
+            if response.status_code != 200:
+                logger.error("خطا در بررسی وضعیت مدل: کد وضعیت %s", response.status_code)
+                return None, None, None
+            
+            data = response.json()
+            if data.get("status") != "success":
+                logger.error("خطا در بررسی وضعیت مدل: %s", data.get("message", "خطای نامشخص"))
+                return None, None, None
+            
+            file_status = data.get("file_status", {})
+            if not file_status.get("model_exists") or not file_status.get("mapping_exists") or not file_status.get("labels_exists"):
+                logger.warning("برخی از فایل‌های مورد نیاز در سرور موجود نیستند.")
+                return None, None, None
+        except requests.exceptions.RequestException as e:
+            logger.error("خطا در ارتباط با API برای بررسی وضعیت مدل: %s", e)
+            return None, None, None
+        
+        # دریافت فایل مدل
+        model_url = f"{API_BASE_URL}/public-model"
+        try:
+            response = requests.get(model_url, timeout=30)  # زمان انتظار بیشتر برای فایل‌های بزرگ
+            if response.status_code == 200:
+                with open(model_path, 'wb') as f:
+                    f.write(response.content)
+                logger.info("فایل مدل با موفقیت از API دریافت شد.")
+            else:
+                logger.warning("خطا در دریافت فایل مدل از API: %s", response.status_code)
+                return None, None, None
+        except requests.exceptions.RequestException as e:
+            logger.error("خطا در دریافت فایل مدل از API: %s", e)
+            return None, None, None
+        
+        # دریافت فایل نگاشت برچسب‌ها
+        mapping_url = f"{API_BASE_URL}/label-mapping"
+        try:
+            response = requests.get(mapping_url, timeout=10)
+            if response.status_code == 200:
+                mapping_data = response.json().get('mapping', {})
+                with open(mapping_path, 'w', encoding='utf-8') as f:
+                    json.dump(mapping_data, f, ensure_ascii=False, indent=4)
+                logger.info("فایل نگاشت برچسب‌ها با موفقیت از API دریافت شد.")
+            else:
+                logger.warning("خطا در دریافت فایل نگاشت برچسب‌ها از API: %s", response.status_code)
+                return None, None, None
+        except requests.exceptions.RequestException as e:
+            logger.error("خطا در دریافت فایل نگاشت برچسب‌ها از API: %s", e)
+            return None, None, None
+        
+        # دریافت فایل نگاشت برچسب‌ها به نام
+        labels_url = f"{API_BASE_URL}/labels-to-name"
+        try:
+            response = requests.get(labels_url, timeout=10)
+            if response.status_code == 200:
+                labels_data = response.json().get('labels_to_name', {})
+                with open(labels_path, 'w', encoding='utf-8') as f:
+                    json.dump(labels_data, f, ensure_ascii=False, indent=4)
+                logger.info("فایل نگاشت برچسب‌ها به نام با موفقیت از API دریافت شد.")
+            else:
+                logger.warning("خطا در دریافت فایل نگاشت برچسب‌ها به نام از API: %s", response.status_code)
+                return None, None, None
+        except requests.exceptions.RequestException as e:
+            logger.error("خطا در دریافت فایل نگاشت برچسب‌ها به نام از API: %s", e)
+            return None, None, None
+        
+        # بارگذاری مدل با پارامترهای بهینه‌شده
+        try:
+            if not hasattr(cv2, 'face'):
+                raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
+            
+            recognizer = cv2.face.LBPHFaceRecognizer_create(
+                radius=2,
+                neighbors=8,
+                grid_x=8,
+                grid_y=8,
+                threshold=80.0  # آستانه پایین‌تر برای تشخیص دقیق‌تر
+            )
+            recognizer.read(model_path)
+            
+            # بارگذاری فایل‌های نگاشت
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                label_mapping = json.load(f)
+            
+            with open(labels_path, 'r', encoding='utf-8') as f:
+                labels_to_name = json.load(f)
+            
+            logger.info("مدل و فایل‌های نگاشت با موفقیت از API بارگذاری شدند.")
+            return recognizer, label_mapping, labels_to_name
+        except Exception as e:
+            logger.error("خطا در بارگذاری مدل: %s", e)
+            return None, None, None
+    
+    except Exception as e:
+        logger.error("خطا در بارگذاری مدل از API: %s", e)
+        return None, None, None
