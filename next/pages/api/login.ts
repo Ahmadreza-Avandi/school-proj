@@ -7,17 +7,41 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
 
     try {
       // ارسال درخواست به API Nest.js برای ورود
-      const nestApiUrl = process.env.NESTJS_API_URL || 'http://nestjs:3001';
-      const response = await axios.post(
-        `${nestApiUrl}/auth/login`,
+      const loginResponse = await axios.post(
+        'http://localhost:3001/auth/login',
         {
           nationalCode,
           password,
         }
       );
+      const loginData = loginResponse.data as { access_token: string };
 
-      // اگر ورود موفقیت‌آمیز بود
-      res.status(200).json(response.data);
+      // دریافت اطلاعات کاربر بعد از لاگین موفق
+      try {
+        const userResponse = await axios.get(
+          `http://localhost:3001/users/by-national-code/${nationalCode}`,
+          {
+            headers: {
+              Authorization: `Bearer ${loginData.access_token}`,
+            },
+          }
+        );
+
+        // ترکیب اطلاعات توکن و کاربر
+        const responseData = {
+          ...loginData,
+          user: {
+            roleId: userResponse.data.roleId,
+            fullName: userResponse.data.fullName,
+          },
+        };
+
+        // اگر ورود موفقیت‌آمیز بود
+        res.status(200).json(responseData);
+      } catch (userError) {
+        // اگر دریافت اطلاعات کاربر با خطا مواجه شد، فقط توکن را برگردان
+        res.status(200).json(loginData);
+      }
     } catch (error) {
       // اگر ورود ناموفق بود
       res.status(400).json({ message: 'Invalid credentials' });

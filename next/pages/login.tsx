@@ -46,18 +46,31 @@ const LoginForm: React.FC = () => {
       
       interface LoginResponse {
         access_token: string;
+        user?: {
+          roleId: number;
+        };
       }
       
       const responseData = response.data as LoginResponse;
-      localStorage.setItem('access_token', responseData.access_token);
       
-      setSnackbarSeverity('success');
-      setSnackbarMessage('ورود موفقیت‌آمیز بود');
-      setSnackbarOpen(true);
-      setTimeout(() => {
+      // فقط مدیر و معلم اجازه ورود دارند
+      if (responseData.user && (responseData.user.roleId === 1 || responseData.user.roleId === 2)) {
+        localStorage.setItem('access_token', responseData.access_token);
+        setSnackbarSeverity('success');
+        setSnackbarMessage('ورود موفقیت‌آمیز بود');
+        setSnackbarOpen(true);
+        setTimeout(() => {
+          setLoading(false);
+          router.push('/');
+        }, 2000);
+      } else {
         setLoading(false);
-        router.push('/');
-      }, 2000);
+        setError('nationalCode', { message: 'اجازه ورود ندارید.' });
+        setSnackbarSeverity('error');
+        setSnackbarMessage('فقط معلمان و مدیران اجازه ورود دارند.');
+        setSnackbarOpen(true);
+        return;
+      }
     } catch (error: any) {
       setLoading(false);
       setError('nationalCode', { message: 'Login failed' });

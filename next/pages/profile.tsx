@@ -117,7 +117,7 @@ const ProfilePage: React.FC = () => {
         const decodedToken = JSON.parse(atob(token.split('.')[1]));
         const nationalCode = decodedToken.nationalCode;
 
-        const response = await fetch(`http://localhost:3001/users/by-national-code/${nationalCode}`, {
+        const response = await fetch(`https://a.networklearnzero.shop/api/users/by-national-code/${nationalCode}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -134,7 +134,7 @@ const ProfilePage: React.FC = () => {
         const user = await response.json();
         
         // دریافت نام نقش از جدول role
-        const roleResponse = await fetch(`http://localhost:3001/roles/${user.roleId}`, {
+        const roleResponse = await fetch(`https://a.networklearnzero.shop/api/roles/${user.roleId}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -142,7 +142,7 @@ const ProfilePage: React.FC = () => {
           },
         });
 
-        let roleName = 'نقش نامشخص';
+        let roleName = 'نقش نامشخصص';
         if (roleResponse.ok) {
           const roleData = await roleResponse.json();
           roleName = roleData.name;
@@ -151,7 +151,7 @@ const ProfilePage: React.FC = () => {
         // دریافت اطلاعات کلاس
         let className = '';
         if (user.classId) {
-          const classResponse = await fetch(`http://localhost:3001/classes/${user.classId}`, {
+          const classResponse = await fetch(`https://a.networklearnzero.shop/api/classes/${user.classId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -169,7 +169,7 @@ const ProfilePage: React.FC = () => {
         let reshte = '';
         let reshteImage = '';
         if (user.reshteId) {
-          const reshteResponse = await fetch(`http://localhost:3001/reshte/${user.reshteId}`, {
+          const reshteResponse = await fetch(`https://a.networklearnzero.shop/api/reshte/${user.reshteId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -188,7 +188,7 @@ const ProfilePage: React.FC = () => {
         let grade = '';
         let gradeImage = '';
         if (user.gradeId) {
-          const gradeResponse = await fetch(`http://localhost:3001/grades/${user.gradeId}`, {
+          const gradeResponse = await fetch(`https://a.networklearnzero.shop/api/grades/${user.gradeId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -265,7 +265,7 @@ const ProfilePage: React.FC = () => {
     const token = localStorage.getItem('access_token');
 
     try {
-      const response = await fetch(`http://localhost:3001/users/by-national-code/${userData.nationalCode}`, {
+      const response = await fetch(`https://a.networklearnzero.shop/api/users/by-national-code/${userData.nationalCode}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -314,7 +314,7 @@ const ProfilePage: React.FC = () => {
     const token = localStorage.getItem('access_token');
 
     try {
-      const response = await fetch(`http://localhost:3001/users/change-password`, {
+      const response = await fetch(`https://a.networklearnzero.shop/api/users/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -446,7 +446,7 @@ const ProfilePage: React.FC = () => {
       formData.append('photo', blob, `${userData.nationalCode}.jpg`);
       
       // ارسال به سرور
-      const uploadResponse = await fetch(`http://localhost:3001/users/upload-photo/${userData.nationalCode}`, {
+      const uploadResponse = await fetch(`https://a.networklearnzero.shop/api/users/upload-photo/${userData.nationalCode}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

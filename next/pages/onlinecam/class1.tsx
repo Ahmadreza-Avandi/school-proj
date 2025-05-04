@@ -10,7 +10,7 @@ const DVRStreamView: React.FC = () => {
 
   const checkStatus = async () => {
     try {
-      const res = await fetch('http://localhost:5000/status');
+      const res = await fetch('https://a.networklearnzero.shop/python-api/status');
       const { online } = await res.json();
       setIsOnline(online);
 

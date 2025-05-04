@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const response = await fetch('http://localhost:3001/last_seen'); // پورت 3001
+    const response = await fetch('https://a.networklearnzero.shop/api/last_seen');
     if (!response.ok) {
       throw new Error('Failed to fetch data from NestJS API');
     }

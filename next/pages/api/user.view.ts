@@ -16,8 +16,7 @@ interface UserRow {
 }
 
 const dbConfig = {
-  // استفاده از نام سرویس داکر برای اتصال از داخل شبکه داکر
-  connectionString: process.env.DATABASE_URL || 'mysql://root:rootpassword@mysql:3306/mydatabase',
+  connectionString: process.env.DATABASE_URL || 'mysql://user:userpassword@mysql:3306/mydatabase',
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -30,10 +30,10 @@ API_BASE_URL = os.environ.get("PYTHON_API_URL", "https://a.networklearnzero.shop
 
 # تنظیمات دیتابیس
 DB_CONFIG = {
-    'host': os.environ.get("MYSQL_HOST", "localhost"),
-    'database': os.environ.get("MYSQL_DATABASE", "proj"),
-    'user': os.environ.get("MYSQL_USER", "root"),
-    'password': os.environ.get("MYSQL_PASSWORD", ""),
+    'host': '91.107.165.2',
+    'database': os.environ.get("MYSQL_DATABASE", "mydatabase"),
+    'user': os.environ.get("MYSQL_USER", "user"),
+    'password': os.environ.get("MYSQL_PASSWORD", "userpassword"),
 }
 
 # --------------------- تنظیمات دسترسی به سرور و داکر ---------------------

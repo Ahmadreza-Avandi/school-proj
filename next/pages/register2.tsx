@@ -1,17 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
-import {
-  Container,
-  Box,
-  Paper,
-  Button,
-  Typography,
-  Snackbar,
-  Alert,
-  CircularProgress,
-  TextField,
-  IconButton,
-  MenuItem,
-} from '@mui/material';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import TextField from '@mui/material/TextField';
+import IconButton from '@mui/material/IconButton';
+import Container from '@mui/material/Container';
 import { useForm, Controller } from 'react-hook-form';
 import axios from 'axios';
 import { useRouter } from 'next/router';
@@ -25,6 +22,7 @@ interface FormInputs {
   password: string;
   majorId: number;
   gradeId: number;
+  roleId: number;
 }
 
 const RegisterForm: React.FC = () => {
@@ -37,11 +35,13 @@ const RegisterForm: React.FC = () => {
   const [cameraActive, setCameraActive] = useState(false);
   const [majors, setMajors] = useState<any[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
+  const [showTeacherMessage, setShowTeacherMessage] = useState(false);
   const webcamRef = useRef<Webcam>(null);
   const router = useRouter();
 
   const { control, handleSubmit, watch } = useForm<FormInputs>();
   const nationalCode = watch('nationalCode');
+  const selectedRoleId = watch('roleId', 3); // مقدار پیش‌فرض 3 (دانش‌آموز) - همیشه 3 ارسال می‌شود
 
   const videoConstraints = {
     width: 400,
@@ -107,7 +107,8 @@ const RegisterForm: React.FC = () => {
   const handleCapturedImageUpload = async (imageData: string) => {
     try {
       setLoading(true);
-      const response = await fetch('/python-api/upload', {
+      // ارسال فقط تصویر و کد ملی برای آموزش مدل ارسال می‌شود و سپس اطلاعات کاربر به صورت جداگانه ثبت می‌گردد.
+      const response = await fetch('http://localhost:5000/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -115,12 +116,9 @@ const RegisterForm: React.FC = () => {
         body: JSON.stringify({
           image: imageData,
           nationalCode: nationalCode,
-          fullName: watch('fullName') || '',
         }),
       });
-
       const result = await response.json();
-
       if (response.ok && result.status === 'success') {
         setMessage(result.message || "تصویر با موفقیت تأیید شد!");
         setSeverity('success');
@@ -140,7 +138,7 @@ const RegisterForm: React.FC = () => {
     }
   };
 
-  // ارسال فرم نهایی ثبت‌نام همراه با تصویر تأیید شده
+  // ارسال فرم نهایی ثبت‌نام بدون تصویر (فقط اطلاعات کاربر)
   const onSubmit = async (data: FormInputs) => {
     if (!identityPhoto) {
       setMessage("لطفاً ابتدا تصویر شناسایی خود را بگیرید و آپلود کنید.");
@@ -148,61 +146,42 @@ const RegisterForm: React.FC = () => {
       setOpen(true);
       return;
     }
-
-    // تبدیل majorId و gradeId به عدد اگر الان رشته هستند
-    const majorIdNum = typeof data.majorId === 'string' ? parseInt(data.majorId, 10) : data.majorId || 1;
-    const gradeIdNum = typeof data.gradeId === 'string' ? parseInt(data.gradeId, 10) : data.gradeId || 1;
-
-    // اطمینان از اینکه majorId و gradeId مقادیر معتبری دارند
-    const processedData = {
-      ...data,
-      majorId: majorIdNum || 1,
-      gradeId: gradeIdNum || 1,
-      roleId: 2, // تنظیم نقش به صورت ثابت برابر 2 (کاربر عادی)
+    let formData: any = { 
+      ...data, 
+      roleId: 3 // نقش همیشه دانش‌آموز ثبت می‌شود
     };
-
+    if (selectedRoleId !== 2) {
+      formData.majorId = data.majorId || 1;
+      formData.gradeId = data.gradeId || 1;
+    } else {
+      delete formData.majorId;
+      delete formData.gradeId;
+    }
     try {
       setLoading(true);
-      // کوتاه کردن تصویر برای جلوگیری از مشکلات حجم
-      let optimizedPhoto = identityPhoto;
-      if (identityPhoto && identityPhoto.length > 500000) {
-        // اگر طول رشته بیش از 500KB است، فقط 500KB اول را استفاده کنیم
-        optimizedPhoto = identityPhoto.substring(0, 500000);
-      }
-
-      // استفاده از API محلی Next.js برای افزودن کاربر
-      const response = await axios.post('/api/add-user', { ...processedData, identityPhoto: optimizedPhoto });
-      
-      // بررسی دقیق‌تر وضعیت پاسخ
+      // ارسال اطلاعات کاربر به صورت جداگانه
+      const response = await axios.post('http://localhost:3001/users/add-user', formData);
       if (response.status >= 200 && response.status < 300) {
-        console.log('Registration successful:', response.data);
         setMessage('ثبت‌نام با موفقیت انجام شد!');
         setSeverity('success');
         setOpen(true);
-        
-        // تاخیر کوتاه‌تر برای انتقال به صفحه لاگین
+        if (selectedRoleId === 2) {
+          setShowTeacherMessage(true);
+          return;
+        }
         setTimeout(() => {
           try {
             router.push('/login');
           } catch (routeError) {
-            console.error('Error navigating to login page:', routeError);
-            // اگر هدایت با روش push مشکل داشت، از روش replace استفاده کنیم
             window.location.href = '/login';
           }
         }, 2000);
       } else {
-        console.error('Server responded with non-success status:', response.status, response.data);
-        interface ErrorResponse {
-          message?: string;
-        }
-        const errorData = response.data as ErrorResponse;
-        setMessage(errorData.message || 'عملیات ثبت‌نام با خطا مواجه شد.');
+        setMessage(response.data?.message || 'عملیات ثبت‌نام با خطا مواجه شد.');
         setSeverity('error');
         setOpen(true);
       }
     } catch (error: any) {
-      console.error('Registration error:', error);
-      // نمایش پیام خطای دقیق‌تر
       const errorMessage = error.response?.data?.message || error.message || 'خطا در ارسال داده‌ها';
       setMessage(errorMessage);
       setSeverity('error');
@@ -294,45 +273,6 @@ const RegisterForm: React.FC = () => {
     </Box>
   );
 
-  // رفع خطای JSX element implicitly has type 'any'
-  const renderIdentityPhoto = (photoSrc: string, onRemove: () => void) => {
-    return (
-      <Box sx={{ position: 'relative', width: '100%', aspectRatio: '3/4', mb: 2 }}>
-        <div 
-          style={{
-            width: '100%',
-            height: '100%',
-            backgroundImage: `url(${photoSrc})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            borderRadius: 8,
-          }}
-        />
-        <IconButton
-          onClick={onRemove}
-          sx={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            bgcolor: 'rgba(0,0,0,0.5)',
-            color: 'white',
-            '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
-          }}
-        >
-          <CloseIcon size={16} />
-        </IconButton>
-        <Button
-          variant="outlined"
-          onClick={() => setCameraActive(true)}
-          startIcon={<Camera />}
-          sx={{ width: '100%', mt: 2 }}
-        >
-          باز کردن دوربین مجدد
-        </Button>
-      </Box>
-    );
-  };
-
   return (
     <Container component="main" maxWidth="xs">
       <Box
@@ -417,7 +357,39 @@ const RegisterForm: React.FC = () => {
               ) : (
                 <>
                   {identityPhoto ? (
-                    renderIdentityPhoto(identityPhoto, () => setIdentityPhoto(null))
+                    <Box sx={{ position: 'relative', width: '100%', aspectRatio: '3/4', mb: 2 }}>
+                      <img
+                        src={identityPhoto}
+                        alt="تصویر شناسایی"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                        }}
+                      />
+                      <IconButton
+                        onClick={() => setIdentityPhoto(null)}
+                        sx={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          bgcolor: 'rgba(0,0,0,0.5)',
+                          color: 'white',
+                          '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' },
+                        }}
+                      >
+                        <CloseIcon size={16} />
+                      </IconButton>
+                      <Button
+                        variant="outlined"
+                        onClick={startCamera}
+                        startIcon={<Camera />}
+                        sx={{ width: '100%', mt: 2 }}
+                      >
+                        باز کردن دوربین مجدد
+                      </Button>
+                    </Box>
                   ) : (
                     <Button
                       variant="outlined"
@@ -479,57 +451,77 @@ const RegisterForm: React.FC = () => {
                 )}
               />
 
-              {/* فیلد انتخاب رشته */}
-              <Controller
-                name="majorId"
-                control={control}
-                defaultValue={0}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    select
-                    fullWidth
-                    label="انتخاب رشته"
-                    variant="outlined"
-                    sx={{ direction: 'rtl' }}
-                    onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
-                    value={field.value}
-                  >
-                    <MenuItem value={0}>انتخاب رشته</MenuItem>
-                    {majors.map((major) => (
-                      <MenuItem key={major.id} value={major.id}>
-                        {major.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
+              {/* انتخاب نقش */}
+              <Box sx={{ mb: 2 }}>
+                <Controller
+                  name="roleId"
+                  control={control}
+                  defaultValue={3}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      select
+                      label="نقش"
+                      fullWidth
+                      size="small"
+                      SelectProps={{ native: true }}
+                      onChange={(e) => field.onChange(Number(e.target.value))}
+                      value={selectedRoleId}
+                    >
+                      <option value={3}>دانش‌آموز</option>
+                      <option value={2}>معلم</option>
+                    </TextField>
+                  )}
+                />
+              </Box>
 
-              {/* فیلد انتخاب پایه */}
-              <Controller
-                name="gradeId"
-                control={control}
-                defaultValue={0}
-                render={({ field }) => (
-                  <TextField
-                    {...field}
-                    select
-                    fullWidth
-                    label="انتخاب پایه"
-                    variant="outlined"
-                    sx={{ direction: 'rtl' }}
-                    onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
-                    value={field.value}
-                  >
-                    <MenuItem value={0}>انتخاب پایه</MenuItem>
-                    {grades.map((grade) => (
-                      <MenuItem key={grade.id} value={grade.id}>
-                        {grade.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                )}
-              />
+              {/* فیلدهای رشته و پایه فقط برای دانش‌آموزان نمایش داده می‌شوند */}
+              {selectedRoleId === 3 && (
+                <>
+                  {/* فیلد انتخاب رشته */}
+                  <Controller
+                    name="majorId"
+                    control={control}
+                    defaultValue={1}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        select
+                        label="رشته تحصیلی"
+                        fullWidth
+                        size="small"
+                        SelectProps={{ native: true }}
+                        sx={{ mb: 2 }}
+                      >
+                        {majors.map((major) => (
+                          <option key={major.id} value={major.id}>{major.name}</option>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                  {/* فیلد انتخاب پایه */}
+                  <Controller
+                    name="gradeId"
+                    control={control}
+                    defaultValue={1}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        select
+                        label="پایه تحصیلی"
+                        fullWidth
+                        size="small"
+                        SelectProps={{ native: true }}
+                        sx={{ mb: 2 }}
+                      >
+                        {grades.map((grade) => (
+                          <option key={grade.id} value={grade.id}>{grade.name}</option>
+                        ))}
+                      </TextField>
+                    )}
+                  />
+                </>
+              )}
             </Box>
           )}
 
@@ -605,17 +597,54 @@ const RegisterForm: React.FC = () => {
             zIndex: 9999,
           }}
         >
+          <CircularProgress color="primary" />
+        </Box>
+      )}
+      
+      {showTeacherMessage && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            bgcolor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+        >
           <Paper
             sx={{
-              p: 3,
+              p: 4,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               gap: 2,
               borderRadius: 2,
+              maxWidth: '80%',
+              width: 400,
+              textAlign: 'center',
             }}
           >
-            <CircularProgress size={24} />
-            <Typography>در حال پردازش...</Typography>
+            <Typography variant="h5" color="primary" fontWeight="bold">
+              ثبت درخواست معلم
+            </Typography>
+            <Typography variant="body1">
+              اطلاعات شما با نقش معلم در سیستم ثبت شد. لطفاً صبر کنید تا مدیر سیستم درخواست شما را تأیید کند.
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => {
+                setShowTeacherMessage(false);
+                router.push('/login');
+              }}
+              sx={{ mt: 2 }}
+            >
+              بازگشت به صفحه ورود
+            </Button>
           </Paper>
         </Box>
       )}

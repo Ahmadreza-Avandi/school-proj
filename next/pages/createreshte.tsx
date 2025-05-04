@@ -55,7 +55,7 @@ const NewLessonPage: React.FC = () => {
 
   const submitNewLesson = async () => {
     try {
-      const response = await fetch('http://localhost:3001/lessons', {
+      const response = await fetch('https://a.networklearnzero.shop/api/lessons', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

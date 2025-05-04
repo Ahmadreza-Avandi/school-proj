@@ -5,10 +5,8 @@ import persian from 'react-date-object/calendars/persian';
 import gregorian from 'react-date-object/calendars/gregorian';
 
 const dbConfig = {
-  // استفاده از نام سرویس داکر برای اتصال از داخل شبکه داکر
-  connectionString: process.env.DATABASE_URL || 'mysql://root:rootpassword@mysql:3306/mydatabase',
+  connectionString: process.env.DATABASE_URL || 'mysql://user:userpassword@mysql:3306/mydatabase',
 };
-
 
 // Persian weekday names
 const persianWeekDays = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه'];

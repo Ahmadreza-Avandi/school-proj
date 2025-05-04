@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3001/users'; // آدرس بک‌اند
+const API_URL = 'https://a.networklearnzero.shop/api/users'; // آدرس بک‌اند
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.headers.authorization?.split(' ')[1];

@@ -11,8 +11,7 @@ export default async (req: NextApiRequest, res: NextApiResponse) => {
     }
 
     try {
-      const nestApiUrl = process.env.NESTJS_API_URL || 'http://nestjs:3001';
-      const response = await axios.get(`${nestApiUrl}/auth/validate-token`, {
+      const response = await axios.get('http://localhost:3001/auth/validate-token', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

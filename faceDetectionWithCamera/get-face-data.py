@@ -169,24 +169,24 @@ def detect_and_validate_face(image):
 
 def save_to_redis(national_code, full_name, face_image_gray):
     """
-    ذخیره اطلاعات کاربر در Redis با اطلاعات بیشتر برای بهبود کیفیت مدل.
+    ذخیره چند تصویر برای هر کاربر در Redis (حداکثر 5 تصویر)
     """
     try:
-        # فشرده‌سازی تصویر با کیفیت بالا برای حفظ جزئیات
         success, buffer = cv2.imencode('.jpg', face_image_gray, [cv2.IMWRITE_JPEG_QUALITY, 95])
         if not success:
             raise ValueError("خطا در رمزگذاری تصویر به JPEG.")
-
         face_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        # زمان فعلی
         now = datetime.now()
         jalali_now = JalaliDateTime.now()
-        
-        # اطلاعات بیشتر برای هر کاربر
-        data = {
-            "nationalCode": national_code,
-            "fullName": full_name,
+        # خواندن داده قبلی (در صورت وجود)
+        prev_data_json = redis_client.get(national_code)
+        if prev_data_json:
+            prev_data = json.loads(prev_data_json)
+            faces = prev_data.get("faces", [])
+        else:
+            faces = []
+        # اضافه کردن تصویر جدید به ابتدای آرایه
+        faces.insert(0, {
             "faceImage": face_base64,
             "detectionTime": jalali_now.strftime('%Y-%m-%d %H:%M:%S'),
             "detectionTimeGregorian": now.strftime('%Y-%m-%d %H:%M:%S'),
@@ -201,14 +201,17 @@ def save_to_redis(national_code, full_name, face_image_gray):
                 "source": "face_registration_api",
                 "timestamp": int(now.timestamp())
             }
+        })
+        # فقط 5 تصویر آخر را نگه دار
+        faces = faces[:5]
+        data = {
+            "nationalCode": national_code,
+            "fullName": full_name,
+            "faces": faces
         }
-        
-        # ذخیره در Redis با تنظیم زمان انقضا (30 روز)
-        expiry_time = 60 * 60 * 24 * 30  # 30 روز به ثانیه
+        expiry_time = 60 * 60 * 24 * 30
         redis_client.setex(national_code, expiry_time, json.dumps(data))
-        
-        logging.info("اطلاعات کاربر '%s' با کد ملی %s در Redis ذخیره شد. (انقضا: 30 روز)", 
-                     full_name, national_code)
+        logging.info("%d تصویر برای کاربر '%s' با کد ملی %s در Redis ذخیره شد.", len(faces), full_name, national_code)
         return True
     except Exception as e:
         logging.error("خطا در ذخیره اطلاعات در Redis برای کد ملی %s: %s", national_code, e)
@@ -220,6 +223,11 @@ def train_model():
     آموزش مدل تشخیص چهره با استفاده از داده‌های ذخیره‌شده در Redis.
     بهینه‌سازی شده برای کار با کدهای ملی با طول متغیر و افزایش دقت.
     """
+    # بررسی وجود ماژول cv2.face
+    if not hasattr(cv2, 'face'):
+        logging.error("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
+        return False
+        
     faces = []
     labels = []
     labels_to_name = {}
@@ -311,13 +319,17 @@ def train_model():
             # radius: شعاع همسایگی برای محاسبه LBP
             # neighbors: تعداد نقاط نمونه‌برداری در همسایگی دایره‌ای
             # grid_x و grid_y: تعداد سلول‌ها در جهت x و y
-            model = cv2.face.LBPHFaceRecognizer_create(
-                radius=2,
-                neighbors=8,
-                grid_x=8,
-                grid_y=8,
-                threshold=80.0  # آستانه پایین‌تر برای تشخیص دقیق‌تر
-            )
+            try:
+                model = cv2.face.LBPHFaceRecognizer_create(
+                    radius=2,
+                    neighbors=8,
+                    grid_x=8,
+                    grid_y=8,
+                    threshold=80.0  # آستانه پایین‌تر برای تشخیص دقیق‌تر
+                )
+            except AttributeError as e:
+                logging.error("خطا در ایجاد مدل تشخیص چهره: %s", e)
+                return False
             
             # آموزش مدل با داده‌های جمع‌آوری شده
             model.train(np.array(faces), np.array(labels))
@@ -338,7 +350,8 @@ def train_model():
             return True
         except Exception as e:
             logging.error("خطا در آموزش مدل: %s", e)
-            raise
+            # به جای ارسال خطا، آن را مدیریت می‌کنیم
+            return False
     else:
         logging.warning("داده‌ای جهت آموزش مدل یافت نشد.")
         return False
