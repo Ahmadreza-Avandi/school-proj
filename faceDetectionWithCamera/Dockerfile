@@ -3,8 +3,10 @@ FROM python:3.10-slim
 # تنظیم دایرکتوری کاری
 WORKDIR /app
 
-# نصب ابزارهای موردنیاز برای OpenCV
+# نصب ابزارهای موردنیاز برای OpenCV و ابزارهای بیلد dlib
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -35,4 +37,4 @@ ENV REDIS_HOST=redis
 EXPOSE 5000
 
 # اجرای اپلیکیشن
-CMD ["python", "get-face-data.py"] 
+CMD ["python", "get-face-data.py"]
