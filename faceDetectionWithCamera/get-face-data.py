@@ -408,7 +408,7 @@ def upload_image():
         upload_to_liara(national_code, buffer.tobytes())
 
         # آموزش مدل
-        train_model()
+        train_model_from_redis()
 
         return jsonify({"status": "success", "message": "تصویر پردازش شد، اطلاعات ذخیره و مدل به‌روز شد."})
 

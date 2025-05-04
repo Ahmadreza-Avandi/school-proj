@@ -4,7 +4,7 @@
 import cv2
 import numpy as np
 import mysql.connector
-import redis
+import redis   
 import os
 import json
 import requests
