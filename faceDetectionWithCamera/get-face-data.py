@@ -218,143 +218,88 @@ def save_to_redis(national_code, full_name, face_image_gray):
         raise ValueError(f"ذخیره اطلاعات در Redis با خطا مواجه شد: {str(e)}")
 
 
-def train_model():
+# --------------------- آموزش مدل تشخیص چهره ---------------------
+def train_model_from_redis():
     """
-    آموزش مدل تشخیص چهره با استفاده از داده‌های ذخیره‌شده در Redis.
-    بهینه‌سازی شده برای کار با کدهای ملی با طول متغیر و افزایش دقت.
+    داده‌های چهره را از Redis جمع‌آوری می‌کند، نگاشت کد ملی به لیبل عددی می‌سازد، مدل را آموزش می‌دهد و فایل‌های نگاشت را ذخیره می‌کند.
+    منطق دقیقاً مشابه نسخه لوکال.
     """
-    # بررسی وجود ماژول cv2.face
-    if not hasattr(cv2, 'face'):
-        logging.error("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
-        return False
-        
-    faces = []
-    labels = []
-    labels_to_name = {}
-    # دیکشنری برای نگاشت بین کد ملی و برچسب عددی یکتا
-    national_code_to_label = {}
-    label_counter = 1
-
-    # بررسی وجود فایل نگاشت قبلی برای حفظ سازگاری
-    mapping_path = os.path.join("labels", "label_mapping.json")
-    if os.path.exists(mapping_path):
-        try:
-            with open(mapping_path, 'r', encoding='utf-8') as f:
-                national_code_to_label = json.load(f)
-                # تعیین بزرگترین شماره برچسب موجود
-                if national_code_to_label:
-                    label_counter = max([int(v) for v in national_code_to_label.values()]) + 1
-                    logging.info(f"فایل نگاشت موجود بارگذاری شد. شمارنده برچسب از {label_counter} شروع می‌شود.")
-        except Exception as e:
-            logging.error(f"خطا در بارگذاری فایل نگاشت موجود: {e}")
-
-    # جمع‌آوری داده‌های چهره برای هر کد ملی
-    face_data_by_national_code = {}
-    
-    for key in redis_client.scan_iter():
-        try:
-            value = redis_client.get(key)
-            if not value:
+    try:
+        # جمع‌آوری داده‌ها از Redis
+        keys = redis_client.keys()
+        faces = []
+        labels = []
+        label_mapping = {}
+        labels_to_name = {}
+        label_counter = 0
+        for key in keys:
+            data_json = redis_client.get(key)
+            if not data_json:
                 continue
-            data = json.loads(value)
-            national_code = data.get("nationalCode", key)
-            face_base64 = data.get('faceImage')
-            if not face_base64:
+            data = json.loads(data_json)
+            national_code = data.get("nationalCode") or key
+            full_name = data.get("fullName", "")
+            # پشتیبانی از چند تصویر (ساختار جدید)
+            face_images = []
+            if "faces" in data:
+                for face_obj in data["faces"]:
+                    face_base64 = face_obj.get("faceImage")
+                    if face_base64:
+                        img_data = base64.b64decode(face_base64)
+                        np_arr = np.frombuffer(img_data, np.uint8)
+                        image = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
+                        if image is not None:
+                            face_images.append(image)
+            elif "faceImage" in data:
+                face_base64 = data["faceImage"]
+                img_data = base64.b64decode(face_base64)
+                np_arr = np.frombuffer(img_data, np.uint8)
+                image = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
+                if image is not None:
+                    face_images.append(image)
+            if not face_images:
                 continue
+            # نگاشت کد ملی به لیبل عددی
+            if national_code not in label_mapping:
+                label_mapping[national_code] = label_counter
+                labels_to_name[str(label_counter)] = full_name
+                label_counter += 1
+            label = label_mapping[national_code]
+            for img in face_images:
+                if img.shape != (200, 200):
+                    img = cv2.resize(img, (200, 200))
+                faces.append(img)
+                labels.append(label)
+        if not faces or not labels:
+            logging.warning("هیچ داده‌ای برای آموزش یافت نشد.")
+            return False, "هیچ داده‌ای برای آموزش یافت نشد."
+        faces = np.array(faces)
+        labels = np.array(labels)
+        # آموزش مدل LBPH
+        if not hasattr(cv2, 'face'):
+            raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
+        recognizer = cv2.face.LBPHFaceRecognizer_create()
+        recognizer.train(faces, labels)
+        # ذخیره مدل و فایل‌های نگاشت
+        model_path = os.path.join("trainer", "model.xml")
+        recognizer.save(model_path)
+        with open(os.path.join("labels", "label_mapping.json"), "w", encoding="utf-8") as f:
+            json.dump(label_mapping, f, ensure_ascii=False, indent=2)
+        with open(os.path.join("labels", "labels_to_name.json"), "w", encoding="utf-8") as f:
+            json.dump(labels_to_name, f, ensure_ascii=False, indent=2)
+        logging.info("مدل و فایل‌های نگاشت با موفقیت ذخیره شدند.")
+        return True, "آموزش مدل با موفقیت انجام شد."
+    except Exception as e:
+        logging.error(f"خطا در آموزش مدل: {e}")
+        return False, f"خطا در آموزش مدل: {e}"
 
-            img_data = base64.b64decode(face_base64)
-            np_arr = np.frombuffer(img_data, np.uint8)
-            face_img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
-
-            if face_img is None:
-                continue
-
-            # تغییر اندازه به 100x100 برای یکنواختی
-            resized_face = cv2.resize(face_img, (100, 100))
-            
-            # بهبود کیفیت تصویر با استفاده از تکنیک‌های پردازش تصویر
-            # افزایش کنتراست برای بهبود ویژگی‌های چهره
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced_face = clahe.apply(resized_face)
-            
-            # اضافه کردن به دیکشنری داده‌های چهره برای هر کد ملی
-            if national_code not in face_data_by_national_code:
-                face_data_by_national_code[national_code] = {
-                    "faces": [],
-                    "fullName": data.get("fullName", "")
-                }
-            
-            face_data_by_national_code[national_code]["faces"].append(enhanced_face)
-            logging.info(f"تصویر چهره برای کد ملی {national_code} پردازش شد.")
-            
-        except Exception as e:
-            logging.error("خطا در پردازش داده‌های ذخیره‌شده برای کلید %s: %s", key, e)
-            continue
-
-    # پردازش داده‌های جمع‌آوری شده برای آموزش مدل
-    for national_code, data in face_data_by_national_code.items():
-        # اختصاص برچسب یکتا به هر کد ملی
-        if national_code not in national_code_to_label:
-            national_code_to_label[national_code] = label_counter
-            label_counter += 1
-        
-        label_int = national_code_to_label[national_code]
-        
-        # اضافه کردن تمام تصاویر چهره برای این کد ملی
-        for face in data["faces"]:
-            faces.append(face)
-            labels.append(label_int)
-        
-        # ذخیره اطلاعات نام و کد ملی برای این برچسب
-        labels_to_name[str(label_int)] = {
-            "nationalCode": national_code,
-            "fullName": data["fullName"]
-        }
-        
-        logging.info(f"کد ملی {national_code} با {len(data['faces'])} تصویر و برچسب {label_int} آماده آموزش شد.")
-
-    if faces and labels:
-        try:
-            # تنظیم پارامترهای بهینه برای LBPH برای افزایش دقت
-            # radius: شعاع همسایگی برای محاسبه LBP
-            # neighbors: تعداد نقاط نمونه‌برداری در همسایگی دایره‌ای
-            # grid_x و grid_y: تعداد سلول‌ها در جهت x و y
-            try:
-                model = cv2.face.LBPHFaceRecognizer_create(
-                    radius=2,
-                    neighbors=8,
-                    grid_x=8,
-                    grid_y=8,
-                    threshold=80.0  # آستانه پایین‌تر برای تشخیص دقیق‌تر
-                )
-            except AttributeError as e:
-                logging.error("خطا در ایجاد مدل تشخیص چهره: %s", e)
-                return False
-            
-            # آموزش مدل با داده‌های جمع‌آوری شده
-            model.train(np.array(faces), np.array(labels))
-            model_path = os.path.join("trainer", "model.xml")
-            model.write(model_path)
-            logging.info("مدل تشخیص چهره با %d تصویر و %d برچسب یکتا در %s ذخیره شد.", 
-                         len(faces), len(set(labels)), model_path)
-
-            # ذخیره نگاشت کد ملی به برچسب برای استفاده در تشخیص
-            with open(mapping_path, 'w', encoding='utf-8') as f:
-                json.dump(national_code_to_label, f, ensure_ascii=False, indent=4)
-            logging.info("نگاشت برچسب‌ها در %s ذخیره شد.", mapping_path)
-
-            labels_path = os.path.join("labels", "labels_to_name.json")
-            with open(labels_path, 'w', encoding='utf-8') as f:
-                json.dump(labels_to_name, f, ensure_ascii=False, indent=4)
-            logging.info("لیبل‌ها در %s ذخیره شدند.", labels_path)
-            return True
-        except Exception as e:
-            logging.error("خطا در آموزش مدل: %s", e)
-            # به جای ارسال خطا، آن را مدیریت می‌کنیم
-            return False
-    else:
-        logging.warning("داده‌ای جهت آموزش مدل یافت نشد.")
-        return False
+# --------------------- API آموزش مدل ---------------------
+@app.route("/train-model", methods=["POST"])
+def train_model_api():
+    """API برای آموزش مدل با داده‌های Redis و ذخیره فایل‌ها به سبک لوکال"""
+    success, message = train_model_from_redis()
+    status = "success" if success else "error"
+    return jsonify({"status": status, "message": message})
 
 
 def validate_inputs(data):
@@ -378,7 +323,7 @@ def validate_inputs(data):
     return True
 
 
-# --------------------- روت‌های API ---------------------
+# --------------------- API ---------------------
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({"status": "success", "message": "سرور در حال اجراست."})
