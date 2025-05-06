@@ -11,10 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender-dev \
     libgl1-mesa-glx \
     curl \
+    git \
+    wget \
+    python3-dev \
+    pkg-config \
+    libopenblas-dev \
+    liblapack-dev \
+    gfortran \
+    libjpeg-dev \
+    libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 RUN mkdir -p trainer labels assets/face_detection data && \
     chmod 777 trainer labels
