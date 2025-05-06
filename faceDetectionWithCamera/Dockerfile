@@ -20,6 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gfortran \
     libjpeg-dev \
     libpng-dev \
+    libgtk2.0-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
