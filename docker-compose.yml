@@ -85,7 +85,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
-      - NEXT_PUBLIC_PYTHON_API_URL=/python-api
+      - "NEXT_PUBLIC_PYTHON_API_URL=https://a.networklearnzero.shop/python-api"
       - NESTJS_API_URL=http://nestjs:3001
     restart: unless-stopped
     depends_on:

@@ -88,6 +88,7 @@ def save_to_redis(national_code, face_image_gray):
         logging.error(f"خطا در ذخیره تصویر در Redis: {e}")
         raise
 
+@app.route('/upload', methods=['POST'])
 @app.route('/register-face', methods=['POST'])
 def register_face():
     data = request.get_json()
