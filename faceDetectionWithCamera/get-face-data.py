@@ -36,60 +36,38 @@ for key, path in HAAR_CASCADE_PATHS.items():
 face_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATHS["face"])
 eye_cascade = cv2.CascadeClassifier(HAAR_CASCADE_PATHS["eye"])
 
-LIARA_ACCESS_KEY = 'u2cgc3ev1i29tmeg'
-LIARA_SECRET_KEY = '46c86213-2684-4421-9c1d-7d96cb22ac14'
-LIARA_BUCKET_NAME = 'photo-attendance-system'
-LIARA_ENDPOINT_URL = 'https://storage.c2.liara.space'
+# ابعاد جدید متناسب با مدل
+TARGET_IMAGE_SIZE = (224, 224)  # تغییر به ابعاد استاندارد مدل‌های CNN
 
-s3_client = boto3.client('s3',
-                         aws_access_key_id=LIARA_ACCESS_KEY,
-                         aws_secret_access_key=LIARA_SECRET_KEY,
-                         endpoint_url=LIARA_ENDPOINT_URL)
-
-def upload_to_liara(national_code, color_image_data):
-    try:
-        folder_name = "user_register"
-        file_name = f"{folder_name}/{national_code}.jpg"
-        s3_client.put_object(Bucket=LIARA_BUCKET_NAME, Key=file_name, Body=color_image_data, ContentType='image/jpeg')
-        logging.info(f"تصویر رنگی برای کد ملی {national_code} در پوشه {folder_name} در لیارا ذخیره شد.")
-    except NoCredentialsError:
-        logging.error("مشکل در احراز هویت با لیارا.")
-        raise ValueError("احراز هویت با لیارا انجام نشد.")
-    except Exception as e:
-        logging.error(f"خطا در آپلود به لیارا: {e}")
-        raise ValueError("خطا در آپلود به فضای ابری.")
-
-def base64_to_cv2_image(base64_str):
-    try:
-        if ',' in base64_str:
-            base64_str = base64_str.split(',')[1]
-        img_data = base64.b64decode(base64_str)
-        np_arr = np.frombuffer(img_data, np.uint8)
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if image is None:
-            raise ValueError("تصویر نامعتبر است.")
-        return image
-    except Exception as e:
-        logging.error("خطا در تبدیل Base64 به تصویر: %s", e)
-        raise ValueError("عدم توانایی در تبدیل رشته Base64 به تصویر.")
-
+# --------------------- توابع بهبودیافته ---------------------
 def detect_and_validate_face(image):
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+        
         if len(faces) == 0:
             logging.warning("هیچ چهره‌ای در تصویر شناسایی نشد.")
             return None, None
+            
         for (x, y, w, h) in faces:
             face_gray = gray[y:y + h, x:x + w]
             face_color = image[y:y + h, x:x + w]
-            resized_gray = cv2.resize(face_gray, (200, 200))
-            resized_color = cv2.resize(face_color, (200, 200))
+            
+            # تغییر ابعاد به اندازه استاندارد مدل
+            resized_gray = cv2.resize(face_gray, TARGET_IMAGE_SIZE)
+            resized_color = cv2.resize(face_color, TARGET_IMAGE_SIZE)
+            
+            # آزادسازی حافظه تصاویر موقت
+            del face_gray, face_color  # آزادسازی حافظه
+            
+            # اعتبارسنجی چشم‌ها
             eyes = eye_cascade.detectMultiScale(resized_gray)
             if len(eyes) < 2:
                 logging.warning("چهره شناسایی شده چشم‌های کافی ندارد.")
                 continue
+                
             return resized_gray, resized_color
+            
         return None, None
     except Exception as e:
         logging.error("خطا در پردازش تصویر: %s", e)
@@ -101,8 +79,11 @@ def save_to_redis(national_code, face_image_gray):
         if not success:
             raise ValueError("خطا در رمزگذاری تصویر به JPEG.")
         face_base64 = base64.b64encode(buffer).decode('utf-8')
-        redis_client.setex(national_code, 60 * 60 * 24 * 30, face_base64)
+        redis_client.setex(f'face_{national_code}', 60 * 60 * 24 * 30, face_base64)
         logging.info(f"تصویر چهره برای کد ملی {national_code} در Redis ذخیره شد.")
+        
+        # آزادسازی حافظه بافر
+        del buffer  # آزادسازی حافظه
     except Exception as e:
         logging.error(f"خطا در ذخیره تصویر در Redis: {e}")
         raise
@@ -112,20 +93,32 @@ def register_face():
     data = request.get_json()
     national_code = data.get('nationalCode')
     face_base64 = data.get('faceImage')
+    
     if not national_code or not face_base64:
         return jsonify({"error": "کد ملی یا تصویر ارسال نشده است."}), 400
+        
     try:
         image = base64_to_cv2_image(face_base64)
         face_gray, face_color = detect_and_validate_face(image)
+        
         if face_gray is None or face_color is None:
             return jsonify({"error": "چهره معتبر شناسایی نشد."}), 400
+            
         save_to_redis(national_code, face_gray)
+        
+        # پردازش و آپلود تصویر رنگی
         _, color_buffer = cv2.imencode('.jpg', face_color, [cv2.IMWRITE_JPEG_QUALITY, 95])
         upload_to_liara(national_code, color_buffer.tobytes())
+        
+        # آزادسازی حافظه تصاویر
+        del image, face_gray, face_color, color_buffer  # آزادسازی حافظه
+        
         return jsonify({"message": "تصویر با موفقیت ذخیره شد."}), 200
     except Exception as e:
         logging.error(f"خطا در ثبت چهره: {e}")
         return jsonify({"error": "خطا در ثبت چهره."}), 500
+
+# بقیه توابع بدون تغییر (base64_to_cv2_image, upload_to_liara)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

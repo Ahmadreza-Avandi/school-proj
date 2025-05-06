@@ -3,15 +3,13 @@
 
 import cv2
 import numpy as np
+import redis
 import mysql.connector
-import redis   
 import os
 import json
 import requests
-import tempfile
 import paramiko
 import time
-import shutil
 from datetime import datetime
 from persiantools.jdatetime import JalaliDateTime
 import schedule
@@ -36,121 +34,78 @@ DB_CONFIG = {
     'password': os.environ.get("MYSQL_PASSWORD", "userpassword"),
 }
 
-# --------------------- تنظیمات دسترسی به سرور و داکر ---------------------
-VPS_CONFIG = {
-    'host': '91.107.165.2',
-    'username': 'root',
-    'password': 'zerok1385',
-    'docker_container': 'school-proj_pythonserver_1',  # نام کانتینر پایتون
-    'model_path': '/app/trainer/model.xml',            # مسیر فایل مدل در کانتینر
-    'label_mapping_path': '/app/labels/label_mapping.json',  # مسیر فایل نگاشت برچسب‌ها
-    'labels_to_name_path': '/app/labels/labels_to_name.json'  # مسیر فایل نگاشت برچسب‌ها به نام
+# --------------------- تنظیمات Redis ---------------------
+REDIS_CONFIG = {
+    'host': os.environ.get('REDIS_HOST', 'localhost'),
+    'port': 6379,
+    'db': 0,
+    'decode_responses': False
 }
 
-# --------------------- کلاس دانلود فایل‌های از VPS ---------------------
-class ModelDownloader:
-    def __init__(self, config):
-        self.config = config
-        self.ssh_client = None
-        # حذف مسیر downloaded_models
-        # os.makedirs(self.local_dir, exist_ok=True)
+# --------------------- کلاس مدیریت مدل ---------------------
+class ModelTrainer:
+    def __init__(self):
+        self.redis_conn = redis.Redis(**REDIS_CONFIG)
+        self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.label_mapping = {}
+        self.labels_to_name = {}
 
-    def connect(self):
-        """Establish SSH connection to the server"""
+    def load_training_data(self):
+        """بارگذاری داده‌های آموزشی از Redis"""
         try:
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh_client.connect(
-                hostname=self.config['host'],
-                username=self.config['username'],
-                password=self.config['password'],
-                timeout=10
-            )
-            logger.info("SSH connection to server established successfully.")
-            return True
+            images = []
+            labels = []
+            label_count = 0
+            
+            for key in self.redis_conn.keys('face_*'):
+                national_code = key.decode().split('_')[1]
+                face_data = self.redis_conn.get(key)
+                
+                # تبدیل داده‌های باینری به آرایه numpy
+                nparr = np.frombuffer(face_data, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+                
+                if img is not None:
+                    images.append(img)
+                    labels.append(label_count)
+                    self.label_mapping[national_code] = label_count
+                    self.labels_to_name[label_count] = national_code
+                    label_count += 1
+            
+            logger.info(f"تعداد {len(images)} تصویر برای آموزش بارگذاری شد")
+            return images, labels
         except Exception as e:
-            logger.error("Error establishing SSH connection to server: %s", e)
-            return False
+            logger.error("خطا در بارگذاری داده‌های آموزشی: %s", e)
+            return [], []
 
-    def download_file_from_container(self, container_path, local_path):
-        """دانلود فایل از کانتینر داکر به مسیر دلخواه"""
-        if not self.ssh_client:
-            if not self.connect():
-                return None
-
+    def train_model(self):
+        """آموزش مدل با داده‌های جدید"""
         try:
-            temp_dir = "/tmp"
-            remote_temp_file = f"{temp_dir}/{os.path.basename(container_path)}"
-            docker_cp_cmd = f"docker cp {self.config['docker_container']}:{container_path} {remote_temp_file}"
-            stdin, stdout, stderr = self.ssh_client.exec_command(docker_cp_cmd)
-            exit_status = stdout.channel.recv_exit_status()
-
-            if exit_status != 0:
-                error = stderr.read().decode('utf-8')
-                logger.error("خطا در کپی فایل از کانتینر: %s", error)
-                return None
-
-            # دانلود فایل از سرور به سیستم محلی با SFTP
-            sftp = self.ssh_client.open_sftp()
-            sftp.get(remote_temp_file, local_path)
-            sftp.close()
-
-            self.ssh_client.exec_command(f"rm {remote_temp_file}")
-
-            logger.info("فایل %s با موفقیت دانلود شد.", os.path.basename(local_path))
-            return local_path
+            images, labels = self.load_training_data()
+            if len(images) == 0:
+                logger.warning("هیچ داده آموزشی برای آموزش مدل وجود ندارد")
+                return
+            
+            # آموزش مدل LBPH
+            self.face_recognizer.train(images, np.array(labels))
+            
+            # ذخیره مدل آموزش دیده
+            self.face_recognizer.save('trainer/trained_model.yml')
+            logger.info("مدل با موفقیت آموزش داده و ذخیره شد")
         except Exception as e:
-            logger.error("خطا در دانلود فایل %s: %s", local_path, e)
-            return None
-
-    def download_all_model_files(self):
-        """دانلود تمام فایل‌های مدل از کانتینر به مسیرهای اصلی پروژه"""
-        if not self.connect():
-            return None, None, None
-        try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            trainer_dir = os.path.join(base_dir, 'trainer')
-            labels_dir = os.path.join(base_dir, 'labels')
-            os.makedirs(trainer_dir, exist_ok=True)
-            os.makedirs(labels_dir, exist_ok=True)
-            model_path = self.download_file_from_container(
-                self.config['model_path'],
-                os.path.join(trainer_dir, 'model.xml')
-            )
-            mapping_path = os.path.join(labels_dir, 'label_mapping.json')
-            if not os.path.exists(mapping_path):
-                with open(mapping_path, 'w', encoding='utf-8') as f:
-                    json.dump({}, f)
-            labels_path = self.download_file_from_container(
-                self.config['labels_to_name_path'],
-                os.path.join(labels_dir, 'labels_to_name.json')
-            )
-            self.disconnect()
-            return model_path, mapping_path, labels_path
-        except Exception as e:
-            self.disconnect()
-            return None, None, None
-
-    def disconnect(self):
-        """قطع اتصال SSH"""
-        if self.ssh_client:
-            self.ssh_client.close()
-            self.ssh_client = None
+            logger.error("خطا در آموزش مدل: %s", e)
+            raise
 
 # --------------------- کلاس مدیریت دوربین‌ها ---------------------
 class CameraManager:
-    def __init__(self):
+    def __init__(self, face_recognizer, label_mapping, labels_to_name):
         self.cameras = []  # لیست دوربین‌ها
         self.grid_size = (2, 2)  # تعداد ردیف و ستون در نمایش گرید
         self.active_cam = -1     # -1 یعنی نمایش گرید، غیر از -1 یعنی نمایش تمام صفحه یک دوربین
         self.window_name = "Face Recognition System"
         self.last_click = 0
         self.click_delay = 500   # میلی‌ثانیه
-        
-        # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
         self.last_checkin = {}
-    
-        # دیکشنری روزهای هفته فارسی
         self.persian_days = {
             0: "شنبه",
             1: "یکشنبه",
@@ -160,128 +115,18 @@ class CameraManager:
             5: "پنج‌شنبه",
             6: "جمعه"
         }
-    
-        # بارگذاری Haar Cascade جهت تشخیص چهره
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
-    
-        # ایجاد دانلودر برای فایل‌های مدل از VPS
-        self.downloader = ModelDownloader(VPS_CONFIG)
-        
-        # ایجاد پوشه‌های مورد نیاز
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        os.makedirs(os.path.join(base_dir, 'trainer'), exist_ok=True)
-        os.makedirs(os.path.join(base_dir, 'labels'), exist_ok=True)
-        
-        # ابتدا سعی می‌کنیم از VPS دریافت کنیم
-        logger.info("تلاش برای دریافت مدل از VPS...")
-        self.face_recognizer, self.label_mapping, self.labels_to_name = self.load_model_from_vps()
-        
-        # اتصال به دیتابیس MySQL
+        self.face_recognizer = face_recognizer
+        self.label_mapping = label_mapping
+        self.labels_to_name = labels_to_name
         try:
             self.db = mysql.connector.connect(**DB_CONFIG)
             logger.info("اتصال به دیتابیس MySQL برقرار شد.")
         except mysql.connector.Error as err:
             logger.error("خطا در اتصال به دیتابیس: %s", err)
             self.db = None
-    
-            # اتصال به Redis (اختیاری)
-            try:
-                self.redis_db = redis.StrictRedis(
-                    host=os.environ.get("REDIS_HOST", "localhost"), 
-                    port=int(os.environ.get("REDIS_PORT", "6379")), 
-                    db=0, 
-                    decode_responses=True
-                )
-                logger.info("اتصال به Redis برقرار شد.")
-            except Exception as e:
-                logger.error("خطا در اتصال به Redis: %s", e)
-                self.redis_db = None
-    
-                # زمانبندی بررسی بروزرسانی‌های مدل - هر 30 دقیقه یکبار
-                schedule.every(30).minutes.do(self.check_for_model_updates)
-
-    def load_model_from_vps(self):
-        """دریافت مدل و فایل‌های مربوطه از VPS"""
-        model_path, mapping_path, labels_path = self.downloader.download_all_model_files()
-        
-        # بارگذاری مدل تشخیص چهره
-        face_recognizer = None
-        if model_path and os.path.exists(model_path):
-            try:
-                if not hasattr(cv2, 'face'):
-                    raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
-                face_recognizer = cv2.face.LBPHFaceRecognizer_create()
-                face_recognizer.read(model_path)
-                logger.info("مدل تشخیص چهره از VPS بارگذاری شد.")
-            except Exception as e:
-                logger.error("خطا در بارگذاری مدل تشخیص چهره: %s", e)
-        
-        # بارگذاری نگاشت برچسب‌ها
-        label_mapping = {}
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        mapping_path = os.path.join(base_dir, 'labels', 'label_mapping.json')
-        if os.path.exists(mapping_path):
-            try:
-                with open(mapping_path, 'r', encoding='utf-8') as f:
-                    label_mapping = json.load(f)
-                logger.info("فایل نگاشت برچسب‌ها بارگذاری شد.")
-            except Exception as e:
-                logger.error("خطا در بارگذاری نگاشت برچسب‌ها: %s", e)
-        else:
-            # ایجاد فایل خالی
-            with open(mapping_path, 'w', encoding='utf-8') as f:
-                json.dump({}, f)
-            logger.info("فایل نگاشت برچسب‌ها ایجاد شد.")
-        
-        # بارگذاری نگاشت برچسب‌ها به نام
-        labels_to_name = {}
-        labels_path = os.path.join(base_dir, 'labels', 'labels_to_name.json')
-        if labels_path and os.path.exists(labels_path):
-            try:
-                with open(labels_path, 'r', encoding='utf-8') as f:
-                    labels_to_name = json.load(f)
-                logger.info("فایل نگاشت برچسب‌ها به نام بارگذاری شد.")
-            except Exception as e:
-                logger.error("خطا در بارگذاری نگاشت برچسب‌ها به نام: %s", e)
-        
-        return face_recognizer, label_mapping, labels_to_name
-
-    def check_for_model_updates(self):
-        """بررسی و دریافت بروزرسانی‌های مدل از API"""
-        try:
-            check_url = f"{API_BASE_URL}/check-model"
-            response = requests.get(check_url)
-            if response.status_code != 200:
-                return
-            data = response.json()
-            if data.get("status") != "success":
-                return
-            file_status = data.get("file_status", {})
-            if file_status.get("model_exists") and file_status.get("mapping_exists") and file_status.get("labels_exists"):
-                face_recognizer, label_mapping, labels_to_name = self.load_model_from_api()
-                if face_recognizer is not None:
-                    self.face_recognizer = face_recognizer
-                    self.label_mapping = label_mapping
-                    self.labels_to_name = labels_to_name
-        except Exception as e:
-            pass
-
-    def load_model_from_server(self):
-        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
-        logger.info("استفاده از روش جدید بارگذاری مدل از VPS")
-        return None
-        
-    def load_label_mapping_from_server(self):
-        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
-        logger.info("استفاده از روش جدید بارگذاری نگاشت برچسب‌ها از VPS")
-        return {}
-        
-    def load_labels_to_name_from_server(self):
-        """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
-        logger.info("استفاده از روش جدید بارگذاری نگاشت برچسب‌ها به نام از VPS")
-        return {}
 
     def add_camera(self, name, source, location):
         """
@@ -583,59 +428,20 @@ class CameraManager:
             final_grid = np.vstack(grid_frames[:self.grid_size[0]])
             cv2.imshow(self.window_name, final_grid)
 
-# --------------------- تابع آموزش مدل با داده‌های Redis ---------------------
-def train_model_from_redis(redis_host="localhost", redis_port=6379, redis_db=0):
-    """
-    آموزش مدل تشخیص چهره با داده‌های ذخیره‌شده در Redis
-    """
-    try:
-        r = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
-        keys = r.keys()
-        faces = []
-        labels = []
-        label_to_name = {}
-        for idx, key in enumerate(keys):
-            data = r.get(key)
-            if not data:
-                continue
-            try:
-                obj = json.loads(data)
-                face_b64 = obj.get("faceImage")
-                if not face_b64:
-                    continue
-                import base64
-                face_bytes = base64.b64decode(face_b64)
-                np_arr = np.frombuffer(face_bytes, np.uint8)
-                face_img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
-                if face_img is None:
-                    continue
-                faces.append(face_img)
-                labels.append(idx)
-                label_to_name[idx] = obj.get("fullName", key)
-            except Exception as e:
-                logger.warning(f"خطا در پردازش داده Redis برای کلید {key}: {e}")
-        if len(faces) < 2:
-            logger.error("داده کافی برای آموزش مدل وجود ندارد.")
-            return False
-        recognizer = cv2.face.LBPHFaceRecognizer_create()
-        recognizer.train(faces, np.array(labels))
-        trainer_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trainer')
-        os.makedirs(trainer_dir, exist_ok=True)
-        recognizer.save(os.path.join(trainer_dir, 'model.xml'))
-        labels_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labels')
-        os.makedirs(labels_dir, exist_ok=True)
-        with open(os.path.join(labels_dir, 'labels_to_name.json'), 'w', encoding='utf-8') as f:
-            json.dump(label_to_name, f, ensure_ascii=False)
-        logger.info("مدل با موفقیت آموزش داده شد و ذخیره گردید.")
-        return True
-    except Exception as e:
-        logger.error(f"خطا در آموزش مدل از Redis: {e}")
-        return False
+# تابع آموزش مدل با داده‌های Redis حذف شد - این تابع در سرور اجرا می‌شود
 
 # --------------------- تابع اصلی ---------------------
 def main():
-    manager = CameraManager()
-
+    # --- اتصال به Redis و آموزش مدل قبل از هر چیز ---
+    model_trainer = ModelTrainer()
+    model_trainer.load_training_data()
+    model_trainer.train_model()
+    manager = CameraManager(
+        model_trainer.face_recognizer,
+        model_trainer.label_mapping,
+        model_trainer.labels_to_name
+    )
+    
     # اضافه کردن دوربین‌ها:
     manager.add_camera("دوربین لپتاپ", 0, "لپتاپ")
     # مثال اضافه کردن دوربین خارجی (در صورت وجود):
@@ -668,210 +474,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-def detect_and_recognize_faces(self, frame, camera_index):
-    """تشخیص و شناسایی چهره‌ها در فریم"""
-    if self.face_recognizer is None:
-        return frame, []
-
-    # تبدیل به خاکستری
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    # بهبود کنتراست تصویر برای دوربین‌های مداربسته
-    gray = cv2.equalizeHist(gray)
-    
-    # تشخیص چهره‌ها
-    faces = self.face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.2,  # کاهش مقدار برای تشخیص بهتر چهره‌های کوچک
-        minNeighbors=5,
-        minSize=(30, 30),
-        flags=cv2.CASCADE_SCALE_IMAGE
-    )
-    
-    recognized_faces = []
-    
-    for (x, y, w, h) in faces:
-        # برش چهره
-        face_gray = gray[y:y+h, x:x+w]
-        
-        # تغییر اندازه به 100x100 (همان اندازه‌ای که مدل با آن آموزش دیده)
-        face_resized = cv2.resize(face_gray, (100, 100))
-        
-        # شناسایی چهره
-        try:
-            label, confidence = self.face_recognizer.predict(face_resized)
-            label_str = str(label)
-            
-            # تبدیل برچسب عددی به کد ملی
-            national_code = None
-            for nc, lbl in self.label_mapping.items():
-                if int(lbl) == label:
-                    national_code = nc
-                    break
-            
-            # دریافت اطلاعات کاربر
-            user_info = self.labels_to_name.get(label_str, {})
-            full_name = user_info.get("fullName", "ناشناس")
-            
-            # آستانه اطمینان - مقدار کمتر یعنی تطابق بیشتر
-            threshold = 80  # می‌توانید این مقدار را تنظیم کنید
-            
-            if confidence < threshold and national_code:
-                # رنگ کادر بر اساس میزان اطمینان
-                # هرچه اطمینان بیشتر (confidence کمتر)، رنگ سبزتر
-                confidence_normalized = min(confidence / threshold, 1.0)
-                box_color = (
-                    0,  # آبی
-                    int(255 * (1 - confidence_normalized)),  # سبز
-                    int(255 * confidence_normalized)  # قرمز
-                )
-                
-                # رسم کادر دور چهره
-                cv2.rectangle(frame, (x, y), (x+w, y+h), box_color, 2)
-                
-                # نمایش نام و میزان اطمینان
-                confidence_text = f"{int(100 - confidence)}%"
-                label_text = f"{full_name} ({confidence_text})"
-                
-                # رسم پس‌زمینه برای متن
-                cv2.rectangle(frame, (x, y-30), (x+w, y), box_color, -1)
-                cv2.putText(frame, label_text, (x+5, y-10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                
-                # ثبت حضور
-                self.register_attendance(national_code, full_name, camera_index, confidence)
-                
-                recognized_faces.append({
-                    "nationalCode": national_code,
-                    "fullName": full_name,
-                    "confidence": confidence,
-                    "position": (x, y, w, h)
-                })
-            else:
-                # چهره ناشناس
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-                cv2.putText(frame, "ناشناس", (x+5, y-10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-        except Exception as e:
-            logger.error("خطا در شناسایی چهره: %s", e)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-    
-    return frame, recognized_faces
-
-# Add this method to the CameraManager class after the __init__ method
-def load_model_from_api(self):
-    """دریافت مدل و فایل‌های مربوطه از API با مکانیزم بهینه‌شده"""
-    try:
-        # ایجاد پوشه‌های مورد نیاز
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        trainer_dir = os.path.join(base_dir, 'trainer')
-        labels_dir = os.path.join(base_dir, 'labels')
-        
-        os.makedirs(trainer_dir, exist_ok=True)
-        os.makedirs(labels_dir, exist_ok=True)
-        
-        # مسیرهای فایل‌های محلی
-        model_path = os.path.join(trainer_dir, 'model.xml')
-        mapping_path = os.path.join(labels_dir, 'label_mapping.json')
-        labels_path = os.path.join(labels_dir, 'labels_to_name.json')
-        
-        # بررسی وضعیت فایل‌ها در سرور قبل از دانلود
-        check_url = f"{API_BASE_URL}/check-model"
-        try:
-            response = requests.get(check_url, timeout=5)
-            if response.status_code != 200:
-                logger.error("خطا در بررسی وضعیت مدل: کد وضعیت %s", response.status_code)
-                return None, None, None
-            
-            data = response.json()
-            if data.get("status") != "success":
-                logger.error("خطا در بررسی وضعیت مدل: %s", data.get("message", "خطای نامشخص"))
-                return None, None, None
-            
-            file_status = data.get("file_status", {})
-            if not file_status.get("model_exists") or not file_status.get("mapping_exists") or not file_status.get("labels_exists"):
-                logger.warning("برخی از فایل‌های مورد نیاز در سرور موجود نیستند.")
-                return None, None, None
-        except requests.exceptions.RequestException as e:
-            logger.error("خطا در ارتباط با API برای بررسی وضعیت مدل: %s", e)
-            return None, None, None
-        
-        # دریافت فایل مدل
-        model_url = f"{API_BASE_URL}/public-model"
-        try:
-            response = requests.get(model_url, timeout=30)  # زمان انتظار بیشتر برای فایل‌های بزرگ
-            if response.status_code == 200:
-                with open(model_path, 'wb') as f:
-                    f.write(response.content)
-                logger.info("فایل مدل با موفقیت از API دریافت شد.")
-            else:
-                logger.warning("خطا در دریافت فایل مدل از API: %s", response.status_code)
-                return None, None, None
-        except requests.exceptions.RequestException as e:
-            logger.error("خطا در دریافت فایل مدل از API: %s", e)
-            return None, None, None
-        
-        # دریافت فایل نگاشت برچسب‌ها
-        mapping_url = f"{API_BASE_URL}/label-mapping"
-        try:
-            response = requests.get(mapping_url, timeout=10)
-            if response.status_code == 200:
-                mapping_data = response.json().get('mapping', {})
-                with open(mapping_path, 'w', encoding='utf-8') as f:
-                    json.dump(mapping_data, f, ensure_ascii=False, indent=4)
-                logger.info("فایل نگاشت برچسب‌ها با موفقیت از API دریافت شد.")
-            else:
-                logger.warning("خطا در دریافت فایل نگاشت برچسب‌ها از API: %s", response.status_code)
-                return None, None, None
-        except requests.exceptions.RequestException as e:
-            logger.error("خطا در دریافت فایل نگاشت برچسب‌ها از API: %s", e)
-            return None, None, None
-        
-        # دریافت فایل نگاشت برچسب‌ها به نام
-        labels_url = f"{API_BASE_URL}/labels-to-name"
-        try:
-            response = requests.get(labels_url, timeout=10)
-            if response.status_code == 200:
-                labels_data = response.json().get('labels_to_name', {})
-                with open(labels_path, 'w', encoding='utf-8') as f:
-                    json.dump(labels_data, f, ensure_ascii=False, indent=4)
-                logger.info("فایل نگاشت برچسب‌ها به نام با موفقیت از API دریافت شد.")
-            else:
-                logger.warning("خطا در دریافت فایل نگاشت برچسب‌ها به نام از API: %s", response.status_code)
-                return None, None, None
-        except requests.exceptions.RequestException as e:
-            logger.error("خطا در دریافت فایل نگاشت برچسب‌ها به نام از API: %s", e)
-            return None, None, None
-        
-        # بارگذاری مدل با پارامترهای بهینه‌شده
-        try:
-            if not hasattr(cv2, 'face'):
-                raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
-            
-            recognizer = cv2.face.LBPHFaceRecognizer_create(
-                radius=2,
-                neighbors=8,
-                grid_x=8,
-                grid_y=8,
-                threshold=80.0  # آستانه پایین‌تر برای تشخیص دقیق‌تر
-            )
-            recognizer.read(model_path)
-            
-            # بارگذاری فایل‌های نگاشت
-            with open(mapping_path, 'r', encoding='utf-8') as f:
-                label_mapping = json.load(f)
-            
-            with open(labels_path, 'r', encoding='utf-8') as f:
-                labels_to_name = json.load(f)
-            
-            logger.info("مدل و فایل‌های نگاشت با موفقیت از API بارگذاری شدند.")
-            return recognizer, label_mapping, labels_to_name
-        except Exception as e:
-            logger.error("خطا در بارگذاری مدل: %s", e)
-            return None, None, None
-    
-    except Exception as e:
-        logger.error("خطا در بارگذاری مدل از API: %s", e)
-        return None, None, None
