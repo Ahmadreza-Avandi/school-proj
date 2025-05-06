@@ -3,21 +3,11 @@ FROM python:3.10-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgl1-mesa-glx \
-    curl \
-    git \
-    wget \
-    python3-dev \
-    pkg-config \
-    libopenblas-dev \
-    liblapack-dev \
-    gfortran \
     libjpeg-dev \
     libpng-dev \
     libgtk2.0-dev \
