@@ -108,7 +108,8 @@ const RegisterForm: React.FC = () => {
     try {
       setLoading(true);
       // ارسال فقط تصویر و کد ملی برای آموزش مدل ارسال می‌شود و سپس اطلاعات کاربر به صورت جداگانه ثبت می‌گردد.
-      const response = await fetch('http://localhost:5000/upload', {
+      const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || "/python-api";
+      const response = await fetch(`${pythonApiUrl}/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
