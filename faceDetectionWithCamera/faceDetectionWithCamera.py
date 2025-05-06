@@ -107,38 +107,27 @@ class ModelDownloader:
         """دانلود تمام فایل‌های مدل از کانتینر به مسیرهای اصلی پروژه"""
         if not self.connect():
             return None, None, None
-
         try:
-            # ایجاد پوشه‌های مورد نیاز
             base_dir = os.path.dirname(os.path.abspath(__file__))
             trainer_dir = os.path.join(base_dir, 'trainer')
             labels_dir = os.path.join(base_dir, 'labels')
-            
             os.makedirs(trainer_dir, exist_ok=True)
             os.makedirs(labels_dir, exist_ok=True)
-            
-            # مسیرهای مقصد
             model_path = self.download_file_from_container(
                 self.config['model_path'],
                 os.path.join(trainer_dir, 'model.xml')
             )
-            
-            # اگر فایل label_mapping.json وجود ندارد، یک فایل خالی ایجاد می‌کنیم
             mapping_path = os.path.join(labels_dir, 'label_mapping.json')
             if not os.path.exists(mapping_path):
                 with open(mapping_path, 'w', encoding='utf-8') as f:
                     json.dump({}, f)
-                logger.info("فایل label_mapping.json ایجاد شد.")
-            
             labels_path = self.download_file_from_container(
                 self.config['labels_to_name_path'],
                 os.path.join(labels_dir, 'labels_to_name.json')
             )
-
             self.disconnect()
             return model_path, mapping_path, labels_path
         except Exception as e:
-            logger.error("خطا در دانلود فایل‌های مدل: %s", e)
             self.disconnect()
             return None, None, None
 
@@ -262,39 +251,22 @@ class CameraManager:
     def check_for_model_updates(self):
         """بررسی و دریافت بروزرسانی‌های مدل از API"""
         try:
-            logger.info("بررسی بروزرسانی‌های مدل از API...")
-            
-            # بررسی وضعیت فایل‌ها در سرور
             check_url = f"{API_BASE_URL}/check-model"
             response = requests.get(check_url)
-            
             if response.status_code != 200:
-                logger.error("خطا در بررسی وضعیت مدل: کد وضعیت %s", response.status_code)
                 return
-            
             data = response.json()
             if data.get("status") != "success":
-                logger.error("خطا در بررسی وضعیت مدل: %s", data.get("message", "خطای نامشخص"))
                 return
-            
             file_status = data.get("file_status", {})
-            
-            # اگر همه فایل‌ها در سرور موجود باشند، آنها را دانلود می‌کنیم
             if file_status.get("model_exists") and file_status.get("mapping_exists") and file_status.get("labels_exists"):
                 face_recognizer, label_mapping, labels_to_name = self.load_model_from_api()
-                
                 if face_recognizer is not None:
                     self.face_recognizer = face_recognizer
                     self.label_mapping = label_mapping
                     self.labels_to_name = labels_to_name
-                    logger.info("مدل و فایل‌های مرتبط با موفقیت بروزرسانی شدند.")
-                else:
-                    logger.warning("بروزرسانی مدل ناموفق بود.")
-            else:
-                logger.warning("برخی از فایل‌های مورد نیاز در سرور موجود نیستند.")
-        
         except Exception as e:
-            logger.error("خطا در بررسی بروزرسانی‌های مدل: %s", e)
+            pass
 
     def load_model_from_server(self):
         """این متد برای سازگاری با کد قبلی حفظ شده اما دیگر استفاده نمی‌شود"""
@@ -610,6 +582,55 @@ class CameraManager:
                 grid_frames.append(np.hstack(row_frames))
             final_grid = np.vstack(grid_frames[:self.grid_size[0]])
             cv2.imshow(self.window_name, final_grid)
+
+# --------------------- تابع آموزش مدل با داده‌های Redis ---------------------
+def train_model_from_redis(redis_host="localhost", redis_port=6379, redis_db=0):
+    """
+    آموزش مدل تشخیص چهره با داده‌های ذخیره‌شده در Redis
+    """
+    try:
+        r = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
+        keys = r.keys()
+        faces = []
+        labels = []
+        label_to_name = {}
+        for idx, key in enumerate(keys):
+            data = r.get(key)
+            if not data:
+                continue
+            try:
+                obj = json.loads(data)
+                face_b64 = obj.get("faceImage")
+                if not face_b64:
+                    continue
+                import base64
+                face_bytes = base64.b64decode(face_b64)
+                np_arr = np.frombuffer(face_bytes, np.uint8)
+                face_img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
+                if face_img is None:
+                    continue
+                faces.append(face_img)
+                labels.append(idx)
+                label_to_name[idx] = obj.get("fullName", key)
+            except Exception as e:
+                logger.warning(f"خطا در پردازش داده Redis برای کلید {key}: {e}")
+        if len(faces) < 2:
+            logger.error("داده کافی برای آموزش مدل وجود ندارد.")
+            return False
+        recognizer = cv2.face.LBPHFaceRecognizer_create()
+        recognizer.train(faces, np.array(labels))
+        trainer_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trainer')
+        os.makedirs(trainer_dir, exist_ok=True)
+        recognizer.save(os.path.join(trainer_dir, 'model.xml'))
+        labels_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'labels')
+        os.makedirs(labels_dir, exist_ok=True)
+        with open(os.path.join(labels_dir, 'labels_to_name.json'), 'w', encoding='utf-8') as f:
+            json.dump(label_to_name, f, ensure_ascii=False)
+        logger.info("مدل با موفقیت آموزش داده شد و ذخیره گردید.")
+        return True
+    except Exception as e:
+        logger.error(f"خطا در آموزش مدل از Redis: {e}")
+        return False
 
 # --------------------- تابع اصلی ---------------------
 def main():
