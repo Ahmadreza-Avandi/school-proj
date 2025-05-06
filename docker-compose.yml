@@ -65,8 +65,13 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.nestjs.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/api`)"
       - "traefik.http.middlewares.nestjs-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.nestjs.middlewares=nestjs-strip"
+      - "traefik.http.routers.nestjs.middlewares=nestjs-strip,cors-headers"
       - "traefik.http.services.nestjs.loadbalancer.server.port=3001"
+      - "traefik.http.middlewares.cors-headers.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-headers.headers.accesscontrolalloworigin=*"
+      - "traefik.http.middlewares.cors-headers.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors-headers.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors-headers.headers.addvaryheader=true"
 
   # سرویس Next.js (فرانت‌اند)
   nextjs:
@@ -215,4 +220,4 @@ networks:
 
 volumes:
   mysql_data:
-  redis_data: 
+  redis_data:
