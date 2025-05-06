@@ -108,7 +108,7 @@ const RegisterForm: React.FC = () => {
     try {
       setLoading(true);
       // ارسال فقط تصویر و کد ملی برای آموزش مدل ارسال می‌شود و سپس اطلاعات کاربر به صورت جداگانه ثبت می‌گردد.
-      const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || "/python-api";
+      const pythonApiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || "https://a.networklearnzero.shop/python-api";
       const response = await fetch(`${pythonApiUrl}/upload`, {
         method: 'POST',
         headers: {
