@@ -29,6 +29,7 @@ cryptography==41.0.3
 # دیگر نیازی به نصب dlib به این روش نیست (در صورت نیاز به صورت جداگانه نصب شود)
 face_recognition_models==0.3.0
 # نصب مستقیم dlib با وابستگی‌های کامپایل شده (در صورت نیاز)
+dlib==19.24.1
 face-recognition==1.3.0
 pillow==10.0.1
 paramiko>=2.10.0
