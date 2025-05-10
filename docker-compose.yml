@@ -63,15 +63,10 @@ services:
       sh -c "sleep 10 && npx prisma migrate deploy && node dist/main.js"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.nestjs.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.nestjs.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/api`)"
       - "traefik.http.middlewares.nestjs-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.nestjs.middlewares=nestjs-strip,cors-headers"
+      - "traefik.http.routers.nestjs.middlewares=nestjs-strip"
       - "traefik.http.services.nestjs.loadbalancer.server.port=3001"
-      - "traefik.http.middlewares.cors-headers.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
-      - "traefik.http.middlewares.cors-headers.headers.accesscontrolalloworigin=*"
-      - "traefik.http.middlewares.cors-headers.headers.accesscontrolallowheaders=Content-Type,Authorization"
-      - "traefik.http.middlewares.cors-headers.headers.accesscontrolmaxage=100"
-      - "traefik.http.middlewares.cors-headers.headers.addvaryheader=true"
 
   # سرویس Next.js (فرانت‌اند)
   nextjs:
@@ -85,7 +80,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
-      - "NEXT_PUBLIC_PYTHON_API_URL=https://a.networklearnzero.shop/python-api"
+      - NEXT_PUBLIC_PYTHON_API_URL=/python-api
       - NESTJS_API_URL=http://nestjs:3001
     restart: unless-stopped
     depends_on:
@@ -94,7 +89,7 @@ services:
     networks:
       - app-network
     volumes:
-      - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
+      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
     # اسکریپت سفارشی در Dockerfile تنظیم شده است
 
   # سرویس Python
@@ -111,6 +106,7 @@ services:
     networks:
       - app-network
     environment:
+      - FLASK_ENV=production
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MYSQL_HOST=mysql
@@ -118,23 +114,14 @@ services:
       - MYSQL_PASSWORD=userpassword
       - MYSQL_DATABASE=mydatabase
     volumes:
-      - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
-      - ./faceDetectionWithCamera/trainer:/app/trainer
-      - ./faceDetectionWithCamera/labels:/app/labels
-    command: ["python", "get-face-data.py"]
+      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
+    command: ["flask", "run", "--host=0.0.0.0"]
     labels:
-    - "traefik.enable=true"
-    - "traefik.docker.network=app-network"
-    - "traefik.http.routers.pythonserver.entrypoints=websecure"
-    - "traefik.http.routers.pythonserver.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-api`)"
-    - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip@docker"
-    - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
-    - "traefik.http.services.pythonserver.loadbalancer.server.port=5000"
-    - "traefik.http.routers.pythonfiles.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/python-files`)"
-    - "traefik.http.routers.pythonfiles.service=pythonserver"
-    - "traefik.http.routers.pythonfiles.entrypoints=websecure"
-    - "traefik.http.middlewares.pythonfiles-strip.stripprefix.prefixes=/python-files"
-    - "traefik.http.routers.pythonfiles.middlewares=pythonfiles-strip@docker"
+      - "traefik.enable=true"
+      - "traefik.http.routers.pythonserver.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/python-api`)"
+      - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
+      - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip"
+
   # سرویس phpMyAdmin
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
@@ -150,7 +137,7 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.phpmyadmin.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/phpmyadmin`)"
+      - "traefik.http.routers.phpmyadmin.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/phpmyadmin`)"
       - "traefik.http.middlewares.phpmyadmin-strip.stripprefix.prefixes=/phpmyadmin"
       - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-strip"
       - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
@@ -172,22 +159,7 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.redis-commander.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/redis-commander`)"
-
-  # سرویس Nginx برای ارائه فایل‌های مدل بدون احراز هویت
-  model-files:
-    image: nginx:alpine
-    volumes:
-      - ./faceDetectionWithCamera/trainer:/usr/share/nginx/html/trainer
-      - ./faceDetectionWithCamera/labels:/usr/share/nginx/html/labels
-    networks:
-      - app-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.model-files.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/model-files`)"
-      - "traefik.http.routers.model-files.middlewares=model-files-strip@docker"
-      - "traefik.http.middlewares.model-files-strip.stripprefix.prefixes=/model-files"
-      - "traefik.http.services.model-files.loadbalancer.server.port=80"
+      - "traefik.http.routers.redis-commander.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/redis-commander`)"
 
   # سرویس Traefik برای مدیریت مسیرها
   traefik:
@@ -204,12 +176,12 @@ services:
       - "8080:8080" # داشبورد Traefik
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/letsencrypt/archive/a.networklearnzero.shop:/certs
+      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
     networks:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`a.networklearnzero.shop`) && PathPrefix(`/traefik`)"
+      - "traefik.http.routers.traefik.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/traefik`)"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=traefik-strip"
       - "traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik"

@@ -1,91 +1,213 @@
-# سیستم تشخیص چهره و حضور و غیاب
+# سیستم حضور و غیاب با تشخیص چهره
 
-این پروژه شامل دو بخش اصلی است:
+این پروژه شامل یک سیستم حضور و غیاب با قابلیت تشخیص چهره است که از Next.js برای فرانت‌اند، Nest.js برای بک‌اند، Redis برای ذخیره‌سازی موقت و MySQL برای دیتابیس استفاده می‌کند. همچنین از Traefik برای reverse proxy و مدیریت مسیرها استفاده می‌شود.
 
-1. **get-face-data.py**: سرور مدیریت داده‌های چهره که در سرور راه‌اندازی می‌شود
-2. **faceDetectionWithCamera.py**: برنامه تشخیص چهره که روی دستگاه‌های محلی راه‌اندازی می‌شود
+## معماری پروژه
 
-## پیش‌نیازها
+سیستم از چندین سرویس مستقل تشکیل شده است:
 
-برای راه‌اندازی کامل سیستم، نیاز به موارد زیر دارید:
-
-- Python 3.8 یا بالاتر
-- سرور MySQL
-- سرور Redis
-- کتابخانه‌های مورد نیاز از فایل `requirements.txt`
+- **فرانت‌اند (Next.js)**: رابط کاربری وب سیستم
+- **بک‌اند (Nest.js)**: API برای مدیریت کاربران، حضور و غیاب و گزارش‌گیری
+- **سرویس تشخیص چهره (Python/Flask)**: پردازش تصاویر و تشخیص چهره‌ها
+- **دیتابیس (MySQL)**: ذخیره‌سازی داده‌های کاربران، کلاس‌ها و سوابق حضور و غیاب
+- **کش (Redis)**: ذخیره‌سازی موقت اطلاعات و جلسات کاربران
+- **Traefik**: مدیریت درخواست‌ها و هدایت آنها به سرویس‌های مناسب
 
 ## نصب و راه‌اندازی
 
-### 1. نصب بسته‌های مورد نیاز
+### پیش‌نیازها
 
+- Docker و Docker Compose
+- Git
+- دسترسی به اینترنت برای دانلود ایمیج‌های Docker
+
+### راه‌اندازی با Docker
+
+1. ابتدا مخزن را Clone کنید:
+```bash
+git clone https://github.com/yourusername/attendance-system.git
+cd attendance-system
+```
+
+2. سرویس‌ها را با Docker Compose راه‌اندازی کنید:
+```bash
+docker-compose up -d
+```
+
+3. منتظر بمانید تا همه سرویس‌ها اجرا شوند (ممکن است چند دقیقه طول بکشد):
+```bash
+docker-compose ps
+```
+
+4. تمام سرویس‌ها از طریق آدرس اصلی در دسترس خواهند بود:
+   - فرانت‌اند: https://a.networklearnzero.shop
+   - API بک‌اند: https://a.networklearnzero.shop/api
+   - API تشخیص چهره: https://a.networklearnzero.shop/python-api
+   - پنل مدیریت دیتابیس: https://a.networklearnzero.shop/phpmyadmin
+   - پنل مدیریت Redis: https://a.networklearnzero.shop/redis-commander
+   - پنل مدیریت Traefik: https://a.networklearnzero.shop/traefik
+
+### دسترسی داخلی به سرویس‌ها (برای توسعه)
+
+در محیط توسعه، می‌توانید مستقیماً به سرویس‌ها دسترسی داشته باشید:
+
+- فرانت‌اند Next.js: http://localhost:3000
+- API بک‌اند Nest.js: http://localhost:3001
+- API تشخیص چهره: http://localhost:5000
+- MySQL: localhost:3306
+- phpMyAdmin: http://localhost:8081
+- Redis Commander: http://localhost:8082
+- داشبورد Traefik: http://localhost:8080
+
+## ساختار پروژه
+
+```
+attendance-system/
+├── docker-compose.yml       # تنظیمات Docker Compose
+├── mysql-init.sql           # اسکریپت اولیه دیتابیس
+├── nest/                    # کد بک‌اند (Nest.js)
+│   ├── Dockerfile           # فایل Docker برای بک‌اند
+│   ├── src/                 # کد منبع بک‌اند
+│   ├── prisma/              # تنظیمات و مدل‌های Prisma
+│   └── ...
+├── next/                    # کد فرانت‌اند (Next.js)
+│   ├── Dockerfile           # فایل Docker برای فرانت‌اند
+│   ├── src/                 # کد منبع فرانت‌اند
+│   └── ...
+└── faceDetectionWithCamera/ # کد تشخیص چهره (Python/Flask)
+    ├── Dockerfile           # فایل Docker برای سرویس تشخیص چهره
+    ├── get-face-data.py     # اپلیکیشن Flask برای تشخیص چهره
+    ├── requirements.txt     # وابستگی‌های Python
+    └── ...
+```
+
+## نکات کاربردی و حل مشکلات متداول
+
+### تنظیم Redis
+
+Redis به صورت پیش‌فرض در حالت standalone تنظیم شده است. اگر با خطای زیر مواجه شدید:
+```
+Error condition on socket for SYNC: Connection refused
+```
+
+اطمینان حاصل کنید که در `docker-compose.yml` دستور زیر برای سرویس Redis تنظیم شده باشد:
+```yaml
+command: redis-server --replicaof no one
+```
+
+### مشکل ثبت کاربر جدید
+
+اگر هنگام ثبت کاربر جدید با خطای زیر مواجه شدید:
+```
+Field 'id' doesn't have a default value
+```
+
+باید جدول `User` در دیتابیس را اصلاح کنید تا فیلد `id` به صورت AUTO_INCREMENT تنظیم شود:
+
+```sql
+SET FOREIGN_KEY_CHECKS = 0;
+ALTER TABLE `User` MODIFY COLUMN `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY;
+SET FOREIGN_KEY_CHECKS = 1;
+```
+
+این دستور را می‌توانید از طریق phpMyAdmin اجرا کنید.
+
+### بازسازی کانتینرها
+
+برای بازسازی یک سرویس خاص (مثلاً پس از تغییر کد):
+
+```bash
+docker-compose build nestjs  # بازسازی فقط سرویس بک‌اند
+docker-compose up -d nestjs  # راه‌اندازی مجدد سرویس
+```
+
+برای بازسازی همه سرویس‌ها:
+
+```bash
+docker-compose down
+docker-compose build
+docker-compose up -d
+```
+
+### مشاهده لاگ‌ها
+
+برای مشاهده لاگ‌های یک سرویس خاص:
+
+```bash
+docker-compose logs -f nestjs  # مشاهده لاگ‌های بک‌اند
+docker-compose logs -f nextjs  # مشاهده لاگ‌های فرانت‌اند
+docker-compose logs -f redis   # مشاهده لاگ‌های Redis
+```
+
+## ویژگی‌های سیستم
+
+- **احراز هویت کاربران**: ثبت‌نام، ورود و مدیریت سطوح دسترسی
+- **مدیریت کلاس‌ها**: افزودن، ویرایش و حذف کلاس‌ها
+- **مدیریت دانش‌آموزان**: افزودن، ویرایش و حذف اطلاعات دانش‌آموزان
+- **تشخیص چهره**: ثبت حضور خودکار با استفاده از تشخیص چهره
+- **گزارش‌گیری**: امکان گزارش‌گیری از وضعیت حضور و غیاب دانش‌آموزان
+
+## نحوه توسعه (برای توسعه‌دهندگان)
+
+### توسعه بک‌اند (Nest.js)
+
+1. وارد دایرکتوری nest شوید:
+```bash
+cd nest
+```
+
+2. وابستگی‌ها را نصب کنید:
+```bash
+npm install
+```
+
+3. سرویس را در حالت توسعه اجرا کنید:
+```bash
+npm run start:dev
+```
+
+### توسعه فرانت‌اند (Next.js)
+
+1. وارد دایرکتوری next شوید:
+```bash
+cd next
+```
+
+2. وابستگی‌ها را نصب کنید:
+```bash
+npm install
+```
+
+3. سرویس را در حالت توسعه اجرا کنید:
+```bash
+npm run dev
+```
+
+### توسعه سرویس تشخیص چهره (Python/Flask)
+
+1. وارد دایرکتوری faceDetectionWithCamera شوید:
+```bash
+cd faceDetectionWithCamera
+```
+
+2. یک محیط مجازی ایجاد کنید:
+```bash
+python -m venv venv
+source venv/bin/activate  # در لینوکس/مک
+# یا
+venv\Scripts\activate  # در ویندوز
+```
+
+3. وابستگی‌ها را نصب کنید:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. تنظیمات محیطی
-
-**برای سرور get-face-data.py (سرور):**
-
-متغیرهای محیطی زیر را تنظیم کنید:
-```
-REDIS_HOST=localhost  # آدرس سرور Redis
-```
-
-**برای faceDetectionWithCamera.py (دستگاه محلی):**
-
-متغیرهای محیطی زیر را تنظیم کنید:
-```
-PYTHON_API_URL=https://a.networklearnzero.shop/python-api  # آدرس API سرور
-MYSQL_HOST=localhost  # آدرس دیتابیس
-MYSQL_DATABASE=proj  # نام دیتابیس
-MYSQL_USER=root  # نام کاربری دیتابیس
-MYSQL_PASSWORD=  # رمز عبور دیتابیس
-REDIS_HOST=localhost  # آدرس سرور Redis
-REDIS_PORT=6379  # پورت Redis
-```
-
-### 3. راه‌اندازی
-
-**سرور (get-face-data.py):**
+4. سرویس را اجرا کنید:
 ```bash
-python get-face-data.py
+flask run --debug
 ```
 
-**کلاینت (faceDetectionWithCamera.py):**
-```bash
-python faceDetectionWithCamera.py
-```
+## مجوز و لایسنس
 
-## نحوه کارکرد
-
-1. **آپلود تصاویر چهره به سرور:**
-   - تصاویر چهره از طریق API به سرور `get-face-data.py` ارسال می‌شود.
-   - تصاویر چهره در Redis ذخیره و مدل تشخیص چهره به‌روزرسانی می‌شود.
-
-2. **تشخیص چهره در کلاینت:**
-   - برنامه `faceDetectionWithCamera.py` به دوربین‌های متصل دسترسی پیدا می‌کند.
-   - مدل تشخیص چهره و فایل‌های لیبل از سرور دریافت می‌شود.
-   - چهره‌های شناسایی‌شده با مدل مقایسه و در صورت تشخیص، حضور فرد ثبت می‌شود.
-   - هر 10 دقیقه یکبار مدل از سرور به‌روزرسانی می‌شود.
-
-3. **ثبت حضور:**
-   - در صورت تشخیص چهره، اطلاعات حضور در دیتابیس MySQL ثبت می‌شود.
-
-## نکات مهم
-
-- فایل‌های مدل (model.xml) و لیبل‌ها (label_mapping.json و labels_to_name.json) در سرور نگهداری می‌شوند.
-- برنامه کلاینت این فایل‌ها را از سرور دریافت می‌کند و به‌صورت موقت در دستگاه محلی استفاده می‌کند.
-- برای عملکرد صحیح تشخیص چهره، کتابخانه opencv-contrib-python باید نصب شده باشد.
-- برای اضافه کردن دوربین‌های بیشتر، بخش `add_camera` در تابع `main` را در فایل `faceDetectionWithCamera.py` ویرایش کنید.
-
-## محیط داکر
-
-برای راه‌اندازی در محیط داکر، از فایل docker-compose.yml پروژه استفاده کنید. اطمینان حاصل کنید که سرویس‌های mysql و redis 
-قبل از راه‌اندازی سرویس pythonserver در حال اجرا باشند.
-
-## عیب‌یابی
-
-- **خطای اتصال به سرور API**: آدرس `PYTHON_API_URL` را بررسی کنید.
-- **خطای اتصال به دیتابیس**: تنظیمات اتصال به دیتابیس را بررسی کنید.
-- **عدم تشخیص چهره**: اطمینان حاصل کنید که مدل به درستی از سرور دریافت شده و نور محیط کافی است.
-- **ماژول cv2.face یافت نشد**: نصب opencv-contrib-python را بررسی کنید. 
+این پروژه تحت مجوز MIT منتشر شده است. 
