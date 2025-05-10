@@ -40,12 +40,12 @@ docker-compose ps
 ```
 
 4. تمام سرویس‌ها از طریق آدرس اصلی در دسترس خواهند بود:
-   - فرانت‌اند: https://a.networklearnzero.shop
-   - API بک‌اند: https://a.networklearnzero.shop/api
-   - API تشخیص چهره: https://a.networklearnzero.shop/python-api
-   - پنل مدیریت دیتابیس: https://a.networklearnzero.shop/phpmyadmin
-   - پنل مدیریت Redis: https://a.networklearnzero.shop/redis-commander
-   - پنل مدیریت Traefik: https://a.networklearnzero.shop/traefik
+   - فرانت‌اند: https://a.zeroshopconnect.ir
+   - API بک‌اند: https://a.zeroshopconnect.ir/api
+   - API تشخیص چهره: https://a.zeroshopconnect.ir/python-api
+   - پنل مدیریت دیتابیس: https://a.zeroshopconnect.ir/phpmyadmin
+   - پنل مدیریت Redis: https://a.zeroshopconnect.ir/redis-commander
+   - پنل مدیریت Traefik: https://a.zeroshopconnect.ir/traefik
 
 ### دسترسی داخلی به سرویس‌ها (برای توسعه)
 
@@ -210,4 +210,4 @@ flask run --debug
 
 ## مجوز و لایسنس
 
-این پروژه تحت مجوز MIT منتشر شده است. 
+این پروژه تحت مجوز MIT منتشر شده است.

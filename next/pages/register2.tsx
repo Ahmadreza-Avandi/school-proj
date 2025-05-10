@@ -107,7 +107,7 @@ const RegisterForm: React.FC = () => {
   const handleCapturedImageUpload = async (imageData: string) => {
     try {
       setLoading(true);
-      const response = await fetch('/python-api/upload', {
+      const response = await fetch('https://a.zeroshopconnect.ir/python-api/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
