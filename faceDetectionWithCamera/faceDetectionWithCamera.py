@@ -95,17 +95,17 @@ class CameraManager:
             if not hasattr(cv2, 'face'):
                 raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
             
-            # تنظیم پارامترهای بهینه برای LBPH برای دقت بیشتر با تعداد افراد بیشتر
-            # - radius: شعاع بزرگتر برای استخراج ویژگی‌های بیشتر
-            # - neighbors: تعداد همسایه‌های بیشتر برای الگوهای دقیق‌تر
-            # - grid_x و grid_y: تقسیم‌بندی ریزتر تصویر برای جزئیات بیشتر
-            # - threshold: آستانه پایین‌تر برای تشخیص بهتر
+            # تنظیم پارامترهای بهینه برای LBPH برای دقت بیشتر در فاصله 1 متر و بهینه‌سازی برای رزبری پای
+            # - radius: شعاع کوچکتر برای سرعت بیشتر در رزبری پای
+            # - neighbors: تعداد همسایه‌های کمتر برای سرعت بیشتر
+            # - grid_x و grid_y: تقسیم‌بندی کمتر برای سرعت بیشتر
+            # - threshold: آستانه بالاتر برای کاهش تشخیص‌های اشتباه در فاصله 1 متر
             self.face_recognizer = cv2.face.LBPHFaceRecognizer_create(
-                radius=2,           # پیش‌فرض: 1
-                neighbors=10,       # پیش‌فرض: 8
-                grid_x=10,          # پیش‌فرض: 8
-                grid_y=10,          # پیش‌فرض: 8
-                threshold=70        # پیش‌فرض: DBL_MAX
+                radius=3,
+                neighbors=16,
+                grid_x=8,
+                grid_y=8,
+                threshold=55
             )
             model_path = "trainer/model.xml"
             
@@ -159,6 +159,7 @@ class CameraManager:
     def adjust_focal_distance(self, frame, zoom_factor=1.5):
         """
         شبیه‌سازی زوم دیجیتال برای دوربین‌های خارجی با بریدن مرکز تصویر.
+        برای دوربین مداربسته در فاصله 1 متر، زوم بیشتری اعمال می‌شود.
         """
         h, w = frame.shape[:2]
         new_w = int(w / zoom_factor)
@@ -166,7 +167,19 @@ class CameraManager:
         x1 = (w - new_w) // 2
         y1 = (h - new_h) // 2
         cropped = frame[y1:y1+new_h, x1:x1+new_w]
-        adjusted = cv2.resize(cropped, (640, 480))
+        
+        # کاهش رزولوشن خروجی برای بهینه‌سازی در رزبری پای
+        adjusted = cv2.resize(cropped, (320, 240))
+        
+        # افزایش کنتراست برای تشخیص بهتر چهره در دوربین مداربسته
+        # این تکنیک به تشخیص بهتر چهره در شرایط نوری مختلف کمک می‌کند
+        lab = cv2.cvtColor(adjusted, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+        adjusted = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+        
         return adjusted
 
     def process_faces(self, frame, location):
@@ -180,14 +193,17 @@ class CameraManager:
           - ثبت حضور در صورت تشخیص با اطمینان کافی.
         """
         # بهینه‌سازی برای رزبری پای: کاهش بیشتر رزولوشن برای بهبود عملکرد
-        frame_small = cv2.resize(frame, (240, 180))
+        frame_small = cv2.resize(frame, (160, 120))  # کاهش بیشتر رزولوشن برای سرعت بالاتر
         gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
         
-        # بهینه‌سازی برای رزبری پای: اعمال تکنیک کاهش نویز
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        # بهینه‌سازی برای رزبری پای: اعمال تکنیک کاهش نویز با کرنل کوچکتر
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)  # کرنل کوچکتر برای سرعت بیشتر
         
-        # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(20, 20))
+        # تنظیم پارامترها برای فاصله 1 متر
+        # - کاهش scaleFactor برای تشخیص بهتر چهره‌های نزدیک
+        # - افزایش minNeighbors برای کاهش تشخیص‌های اشتباه
+        # - افزایش minSize برای تمرکز بر چهره‌های بزرگتر در فاصله 1 متر
+        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         
         # ضریب مقیاس برای تبدیل مختصات به فریم اصلی
         scale_factor_x = frame.shape[1] / frame_small.shape[1]
@@ -215,18 +231,25 @@ class CameraManager:
             if self.face_recognizer is not None:
                 try:
                     # استاندارد کردن اندازه تصویر چهره برای تشخیص
-                    face_roi_std = cv2.resize(face_roi, (200, 200), interpolation=cv2.INTER_AREA)
+                    # کاهش اندازه برای سرعت بیشتر در رزبری پای
+                    face_roi_std = cv2.resize(face_roi, (150, 150), interpolation=cv2.INTER_AREA)
+                    
+                    # افزایش کنتراست برای تشخیص بهتر در دوربین مداربسته
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+                    face_roi_std = clahe.apply(face_roi_std)
+                    
                     label, confidence = self.face_recognizer.predict(face_roi_std)
                     
-                    # تنظیم آستانه دقت
-                    if confidence < 85:
+                    # تنظیم آستانه دقت - افزایش برای کاهش تشخیص‌های اشتباه در فاصله 1 متر
+                    # برای دوربین مداربسته در فاصله 1 متر، آستانه بالاتر مناسب‌تر است
+                    if confidence < 75:
                         # تبدیل برچسب عددی به کد ملی
                         # توجه: در آموزش مدل، ممکن است از 10 رقم آخر کد ملی استفاده شده باشد
                         national_code = str(label)
                         
                         # اعتبارسنجی کد ملی (انعطاف‌پذیر با طول‌های مختلف)
-                        if len(national_code) < 8 or len(national_code) > 12:
-                            logger.warning(f"کد ملی {national_code} با طول {len(national_code)} خارج از محدوده مجاز است (8 تا 12 رقم)")
+                        if len(national_code) < 1:  # حذف محدودیت طول کد ملی
+                            logger.warning(f"کد ملی {national_code} با طول {len(national_code)} خارج از محدوده مجاز است (3 تا 15 رقم)")
                             continue
                             
                         # اگر کد ملی در دیتابیس با طول بیشتری ذخیره شده، باید بررسی شود
@@ -276,7 +299,7 @@ class CameraManager:
                     
                 # اگر کد ملی کوتاه شده باشد (10 رقم آخر)
                 if len(national_code) == 10:
-                    cursor.execute("SELECT nationalCode FROM User WHERE nationalCode LIKE %s", (f'%{national_code}',))
+                    cursor.execute("SELECT nationalCode FROM User WHERE nationalCode LIKE %s", (f'%{national_code}%',))  # بهبود تطبیق الگو
                     result = cursor.fetchone()
                     if result:
                         logger.info(f"کد ملی {national_code} با {result[0]} در دیتابیس تطبیق داده شد")
@@ -284,7 +307,7 @@ class CameraManager:
                         
                 # اگر کد ملی در دیتابیس کوتاه شده باشد
                 if len(national_code) > 10:
-                    short_code = national_code[-10:]
+                    short_code = national_code[-30:]  # افزایش ظرفیت به ۳۰ کاراکتر
                     cursor.execute("SELECT nationalCode FROM User WHERE nationalCode = %s", (short_code,))
                     result = cursor.fetchone()
                     if result:
@@ -513,28 +536,30 @@ class CameraManager:
         # افزایش شمارنده فریم
         self.frame_counter += 1
         
-        # بهینه‌سازی برای رزبری پای: افزایش فاصله پردازش چهره به هر 8 فریم یکبار
-        process_face_this_frame = (self.frame_counter % 8 == 0)
+        # بهینه‌سازی برای رزبری پای: افزایش فاصله پردازش چهره به هر 12 فریم یکبار
+        # برای دوربین مداربسته در فاصله 1 متر، نیازی به پردازش مکرر نیست
+        process_face_this_frame = (self.frame_counter % 12 == 0)
         
         for cam in self.cameras:
             ret, frame = cam['cap'].read()
             if ret:
-                # تنظیم فاصله کانونی برای دوربین‌های خارجی
+                # تنظیم فاصله کانونی برای دوربین‌های خارجی (مداربسته)
                 if cam.get('is_external', False):
-                    frame = self.adjust_focal_distance(frame, zoom_factor=1.5)
+                    # افزایش زوم برای دوربین‌های مداربسته در فاصله 1 متر
+                    frame = self.adjust_focal_distance(frame, zoom_factor=2.0)
                 
                 # پردازش چهره فقط در فریم‌های مشخص
                 if process_face_this_frame:
-                    # بهینه‌سازی برای رزبری پای: کاهش رزولوشن قبل از پردازش
-                    frame_lowres = cv2.resize(frame, (320, 240))
+                    # بهینه‌سازی برای رزبری پای: کاهش بیشتر رزولوشن قبل از پردازش
+                    frame_lowres = cv2.resize(frame, (240, 180))
                     cam['frame'] = self.process_faces(frame_lowres, cam['location'])
                 else:
                     # در فریم‌های دیگر فقط تغییر اندازه بدون پردازش چهره
-                    # بهینه‌سازی برای رزبری پای: کاهش رزولوشن خروجی
-                    cam['frame'] = cv2.resize(frame, (480, 360))
+                    # بهینه‌سازی برای رزبری پای: کاهش بیشتر رزولوشن خروجی
+                    cam['frame'] = cv2.resize(frame, (320, 240))
             else:
                 # بهینه‌سازی برای رزبری پای: کاهش رزولوشن فریم سیاه
-                cam['frame'] = np.zeros((360, 480, 3), dtype=np.uint8)
+                cam['frame'] = np.zeros((240, 320, 3), dtype=np.uint8)
 
     def toggle_fullscreen(self, x, y):
         """
@@ -600,9 +625,9 @@ def main():
     manager = CameraManager()
 
     # اضافه کردن دوربین‌ها:
-    manager.add_camera("دوربین لپتاپ", 0, "لپتاپ")
+    #manager.add_camera("دوربین لپتاپ", 0, "لپتاپ")
     # مثال اضافه کردن دوربین خارجی (در صورت وجود):
-    #manager.add_camera(" 12 مکا", "rtsp://admin:@192.168.1.168:80/ch0_0.264", "12 مکا")
+    manager.add_camera(" 12 مکا", "rtsp://admin:@192.168.1.168:80/ch0_0.264", "12 مکا")
 
     # زمان‌بندی پاکسازی دیکشنری حضور (هر 1.5 ساعت) جهت جلوگیری از ثبت مکرر
     schedule.every(90).minutes.do(manager.last_checkin.clear)
