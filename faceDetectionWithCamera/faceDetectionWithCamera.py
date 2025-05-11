@@ -31,6 +31,8 @@ class CameraManager:
         self.window_name = "Face Recognition System"
         self.last_click = 0
         self.click_delay = 500   # میلی‌ثانیه
+        self.frame_counter = 0   # شمارنده فریم برای پردازش متناوب
+        self.process_interval = 5  # پردازش چهره هر 5 فریم یکبار
 
         # دیکشنری روزهای هفته فارسی
         self.persian_days = {
@@ -152,37 +154,62 @@ class CameraManager:
     def process_faces(self, frame, location):
         """
         پردازش فریم:
+          - کاهش رزولوشن برای بهبود عملکرد.
           - تبدیل به تصویر خاکستری.
           - تشخیص چهره‌ها.
           - در صورت کوچک بودن چهره (به علت فاصله از لنز) تصویر چهره بزرگ‌نمایی می‌شود.
           - پیش‌بینی برچسب با استفاده از مدل آموزش‌دیده.
           - ثبت حضور در صورت تشخیص با اطمینان کافی.
         """
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # کاهش رزولوشن برای بهبود عملکرد
+        frame_small = cv2.resize(frame, (320, 240))
+        gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+        
         # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5, minSize=(20, 20))
+        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(20, 20))
+        
+        # ضریب مقیاس برای تبدیل مختصات به فریم اصلی
+        scale_factor_x = frame.shape[1] / frame_small.shape[1]
+        scale_factor_y = frame.shape[0] / frame_small.shape[0]
+        
         for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            face_roi = gray[y:y+h, x:x+w]
+            # تبدیل مختصات به فریم اصلی
+            x_orig = int(x * scale_factor_x)
+            y_orig = int(y * scale_factor_y)
+            w_orig = int(w * scale_factor_x)
+            h_orig = int(h * scale_factor_y)
+            
+            cv2.rectangle(frame, (x_orig, y_orig), (x_orig+w_orig, y_orig+h_orig), (0, 255, 0), 2)
+            
+            # استخراج ناحیه چهره از تصویر اصلی برای دقت بیشتر در تشخیص
+            face_roi = cv2.cvtColor(frame[y_orig:y_orig+h_orig, x_orig:x_orig+w_orig], cv2.COLOR_BGR2GRAY)
 
             # اگر چهره کوچک باشد، بزرگ‌نمایی می‌شود
-            if w < 100 or h < 100:
+            if w_orig < 100 or h_orig < 100:
                 try:
-                    face_roi = cv2.resize(face_roi, (w*2, h*2), interpolation=cv2.INTER_CUBIC)
+                    face_roi = cv2.resize(face_roi, (100, 100), interpolation=cv2.INTER_AREA)
                 except Exception as e:
                     logger.error("خطا در بزرگنمایی تصویر چهره: %s", e)
 
             if self.face_recognizer is not None:
                 try:
-                    label, confidence = self.face_recognizer.predict(face_roi)
-                    # تنظیم آستانه دقت (مثلاً confidence کمتر از 100)
-                    if confidence < 100:
+                    # استاندارد کردن اندازه تصویر چهره برای تشخیص
+                    face_roi_std = cv2.resize(face_roi, (200, 200), interpolation=cv2.INTER_AREA)
+                    label, confidence = self.face_recognizer.predict(face_roi_std)
+                    
+                    # تنظیم آستانه دقت
+                    if confidence < 85:
                         national_code = str(label)
-                        self.log_attendance(national_code, location)
+                        # استفاده از دیکشنری last_checkin برای جلوگیری از ثبت مکرر
+                        if national_code not in self.last_checkin:
+                            self.log_attendance(national_code, location)
+                            self.last_checkin[national_code] = datetime.now()
                     else:
                         logger.debug("چهره با دقت کافی شناسایی نشد (confidence: %s).", confidence)
                 except Exception as e:
                     logger.error("خطا در پیش‌بینی چهره: %s", e)
+        
+        # تغییر اندازه فریم نهایی برای نمایش
         return cv2.resize(frame, (640, 480))
 
     def log_attendance(self, national_code, location):
@@ -305,6 +332,9 @@ class CameraManager:
             
             # آموزش مدل و ذخیره
             self.face_recognizer.train(faces, np.array(labels))
+            
+            # ایجاد پوشه trainer اگر وجود ندارد
+            os.makedirs("trainer", exist_ok=True)
             self.face_recognizer.save("trainer/model.xml")
             logger.info("مدل با %d تصویر از ردیس آموزش داده شد", len(faces))
             
@@ -346,15 +376,28 @@ class CameraManager:
         به‌روز رسانی فریم‌های هر دوربین:
           - دریافت فریم از دوربین.
           - اعمال تنظیم فاصله کانونی برای دوربین‌های خارجی.
-          - پردازش فریم جهت تشخیص چهره.
+          - پردازش فریم جهت تشخیص چهره (فقط هر چند فریم یکبار).
           - در صورت عدم دریافت فریم، استفاده از یک فریم سیاه.
         """
+        # افزایش شمارنده فریم
+        self.frame_counter += 1
+        
+        # تعیین اینکه آیا در این فریم باید پردازش چهره انجام شود یا خیر
+        process_face_this_frame = (self.frame_counter % self.process_interval == 0)
+        
         for cam in self.cameras:
             ret, frame = cam['cap'].read()
             if ret:
+                # تنظیم فاصله کانونی برای دوربین‌های خارجی
                 if cam.get('is_external', False):
                     frame = self.adjust_focal_distance(frame, zoom_factor=1.5)
-                cam['frame'] = self.process_faces(frame, cam['location'])
+                
+                # پردازش چهره فقط در فریم‌های مشخص
+                if process_face_this_frame:
+                    cam['frame'] = self.process_faces(frame, cam['location'])
+                else:
+                    # در فریم‌های دیگر فقط تغییر اندازه بدون پردازش چهره
+                    cam['frame'] = cv2.resize(frame, (640, 480))
             else:
                 cam['frame'] = np.zeros((480, 640, 3), dtype=np.uint8)
 
