@@ -9,6 +9,10 @@ from datetime import datetime
 from persiantools.jdatetime import JalaliDateTime
 import schedule
 import logging
+import os
+import logging.handlers
+import json
+import base64
 
 # تنظیمات لاگینگ
 logging.basicConfig(
@@ -39,43 +43,74 @@ class CameraManager:
             6: "جمعه"
         }
 
+        # اتصال به دیتابیس MySQL با استفاده از متغیرهای محیطی
+        try:
+            self.db = mysql.connector.connect(
+                host=os.environ.get('MYSQL_HOST', '91.107.165.2'),
+                database=os.environ.get('MYSQL_DATABASE', 'mydatabase'),
+                user=os.environ.get('MYSQL_USER', 'user'),
+                password=os.environ.get('MYSQL_PASSWORD', 'userpassword')
+            )
+            logger.info("اتصال به دیتابیس MySQL در %s برقرار شد", os.environ.get('MYSQL_HOST'))
+        except mysql.connector.Error as err:
+            logger.error("خطا در اتصال به دیتابیس: %s", err)
+            self.db = None
+
+        # اتصال به Redis با تنظیمات سرور مرکزی
+        try:
+            self.redis_db = redis.StrictRedis(
+                host=os.environ.get('REDIS_HOST', '91.107.165.2'),
+                port=int(os.environ.get('REDIS_PORT', 6379)),
+                db=0,
+                password=os.environ.get('REDIS_PASSWORD', ''),
+                decode_responses=True,
+                socket_connect_timeout=10,
+                retry_on_timeout=True,
+                socket_keepalive=True
+            )
+            if self.redis_db.ping():
+                logger.info("اتصال به Redis در %s برقرار شد", os.environ.get('REDIS_HOST'))
+        except Exception as e:
+            logger.error("خطا در اتصال به Redis: %s", e)
+            self.redis_db = None
+
         # بارگذاری Haar Cascade جهت تشخیص چهره
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
 
-        # بارگذاری مدل تشخیص چهره – استفاده از LBPH
+        # بارگذاری و آموزش مدل تشخیص چهره
         try:
             if not hasattr(cv2, 'face'):
                 raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
+            
             self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
             model_path = "trainer/model.xml"
-            self.face_recognizer.read(model_path)
-            logger.info("مدل تشخیص چهره از %s بارگذاری شد.", model_path)
+            
+            # آموزش مدل از داده‌های ردیس در صورت وجود
+            if os.path.exists(model_path):
+                self.face_recognizer.read(model_path)
+                logger.info("مدل از فایل %s بارگذاری شد", model_path)
+            elif self.redis_db and self.redis_db.ping():
+                self.train_model_from_redis()
+            else:
+                logger.warning("هیچ مدل یا داده آموزشی یافت نشد")
+            
         except Exception as e:
-            logger.error("خطا در بارگذاری مدل تشخیص چهره: %s", e)
+            logger.error("خطا در مقداردهی مدل: %s", e)
             self.face_recognizer = None
 
-        # اتصال به دیتابیس MySQL (پایگاه داده: test)
-        try:
-            self.db = mysql.connector.connect(
-                host='localhost',
-                database='proj',
-                user='root',
-                password=''
-            )
-            logger.info("اتصال به دیتابیس MySQL برقرار شد.")
-        except mysql.connector.Error as err:
-            logger.error("خطا در اتصال به دیتابیس: %s", err)
-            self.db = None
-
-        # اتصال به Redis (اختیاری)
-        try:
-            self.redis_db = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
-            logger.info("اتصال به Redis برقرار شد.")
-        except Exception as e:
-            logger.error("خطا در اتصال به Redis: %s", e)
-            self.redis_db = None
+        # تنظیمات پیشرفته لاگ‌گیری
+        log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+        logger.setLevel(log_level)
+        file_handler = logging.handlers.RotatingFileHandler(
+            'attendance.log',
+            maxBytes=1024*1024*5,
+            backupCount=3,
+            encoding='utf-8'
+        )
+        file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'))
+        logger.addHandler(file_handler)
 
         # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
         self.last_checkin = {}
@@ -164,8 +199,8 @@ class CameraManager:
                 # دریافت اطلاعات کاربر و کلاس
                 cursor.execute("""
                     SELECT u.fullName, u.classId, c.name as className 
-                    FROM user u 
-                    LEFT JOIN class c ON u.classId = c.id 
+                    FROM User u 
+                    LEFT JOIN Class c ON u.classId = c.id 
                     WHERE u.nationalCode = %s
                 """, (national_code,))
                 
@@ -243,6 +278,42 @@ class CameraManager:
         except mysql.connector.Error as err:
             logger.error(f"خطای دیتابیس: {err}")
             self.db.rollback()
+
+    def train_model_from_redis(self):
+        """آموزش مدل از داده‌های ذخیره شده در ردیس"""
+        try:
+            labels = []
+            faces = []
+            
+            # جمع‌آوری کلیدهای کاربران از ردیس
+            keys = self.redis_db.keys('*')
+            if not keys:
+                logger.warning("هیچ داده آموزشی در ردیس وجود ندارد")
+                return
+                
+            for key in keys:
+                data = json.loads(self.redis_db.get(key))
+                img_bytes = base64.b64decode(data['faceImage'])
+                np_arr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
+                
+                # تغییر سایز تصویر برای بهینه‌سازی حافظه
+                img = cv2.resize(img, (200, 200), interpolation=cv2.INTER_AREA)
+                
+                faces.append(img)
+                labels.append(int(data['nationalCode']))
+            
+            # آموزش مدل و ذخیره
+            self.face_recognizer.train(faces, np.array(labels))
+            self.face_recognizer.save("trainer/model.xml")
+            logger.info("مدل با %d تصویر از ردیس آموزش داده شد", len(faces))
+            
+            # بهینه‌سازی برای رزبری پای
+            cv2.ocl.setUseOpenCL(False)  # غیرفعال کردن OpenCL برای سازگاری بهتر
+            
+        except Exception as e:
+            logger.error("خطا در آموزش مدل: %s", e)
+            raise
 
     def update_last_seen(self, national_code, full_name, timestamp, location):
         """به‌روزرسانی آخرین وضعیت مشاهده کاربر"""
