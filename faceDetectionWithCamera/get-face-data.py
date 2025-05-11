@@ -150,78 +150,7 @@ def save_to_redis(national_code, full_name, face_image_gray):
         raise ValueError("ذخیره اطلاعات در Redis با خطا مواجه شد.")
 
 
-def train_model():
-    """
-    آموزش مدل تشخیص چهره با استفاده از داده‌های ذخیره‌شده در Redis.
-    """
-    faces = []
-    labels = []
-    labels_to_name = {}
-    # دیکشنری برای نگاشت بین کد ملی و برچسب عددی یکتا
-    national_code_to_label = {}
-    label_counter = 1
 
-    for key in redis_client.scan_iter():
-        try:
-            value = redis_client.get(key)
-            if not value:
-                continue
-            data = json.loads(value)
-            national_code = data.get("nationalCode", key)
-            face_base64 = data.get('faceImage')
-            if not face_base64:
-                continue
-
-            img_data = base64.b64decode(face_base64)
-            np_arr = np.frombuffer(img_data, np.uint8)
-            face_img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
-
-            if face_img is None:
-                continue
-
-            resized_face = cv2.resize(face_img, (100, 100))
-            
-            # استفاده از شمارنده برای اختصاص شناسه‌های صحیح و یکتا
-            if national_code not in national_code_to_label:
-                national_code_to_label[national_code] = label_counter
-                label_counter += 1
-            
-            label_int = national_code_to_label[national_code]
-            
-            faces.append(resized_face)
-            labels.append(label_int)
-            labels_to_name[str(label_int)] = {
-                "nationalCode": national_code,
-                "fullName": data.get("fullName", "")
-            }
-            logging.info(f"کد ملی {national_code} با برچسب {label_int} آماده آموزش شد.")
-        except Exception as e:
-            logging.error("خطا در پردازش داده‌های ذخیره‌شده برای کلید %s: %s", key, e)
-            continue
-
-    if faces and labels:
-        try:
-            model = cv2.face.LBPHFaceRecognizer_create()
-            model.train(np.array(faces), np.array(labels))
-            model_path = os.path.join("trainer", "model.xml")
-            model.write(model_path)
-            logging.info("مدل تشخیص چهره در %s ذخیره شد.", model_path)
-
-            # ذخیره نگاشت کد ملی به برچسب برای استفاده در تشخیص
-            mapping_path = os.path.join("labels", "label_mapping.json")
-            with open(mapping_path, 'w', encoding='utf-8') as f:
-                json.dump(national_code_to_label, f, ensure_ascii=False, indent=4)
-            logging.info("نگاشت برچسب‌ها در %s ذخیره شد.", mapping_path)
-
-            labels_path = os.path.join("labels", "labels_to_name.json")
-            with open(labels_path, 'w', encoding='utf-8') as f:
-                json.dump(labels_to_name, f, ensure_ascii=False, indent=4)
-            logging.info("لیبل‌ها در %s ذخیره شدند.", labels_path)
-        except Exception as e:
-            logging.error("خطا در آموزش مدل: %s", e)
-            raise
-    else:
-        logging.warning("داده‌ای جهت آموزش مدل یافت نشد.")
 
 
 def validate_inputs(data):
@@ -269,8 +198,6 @@ def upload_image():
         _, buffer = cv2.imencode('.jpg', face_color)
         upload_to_liara(national_code, buffer.tobytes())
 
-        # آموزش مدل
-        train_model()
 
         return jsonify({"status": "success", "message": "تصویر پردازش شد، اطلاعات ذخیره و مدل به‌روز شد."})
 
@@ -280,25 +207,6 @@ def upload_image():
     except Exception as e:
         logging.error("خطا در پردازش آپلود تصویر: %s", e)
         return jsonify({"status": "error", "message": "خطای سرور داخلی."}), 500
-
-
-@app.route('/labels', methods=['GET'])
-def get_labels():
-    """
-    دریافت لیبل‌های ذخیره‌شده
-    """
-    try:
-        labels_path = os.path.join("labels", "labels_to_name.json")
-        if not os.path.exists(labels_path):
-            return jsonify({"status": "error", "message": "فایل لیبل یافت نشد."}), 404
-
-        with open(labels_path, 'r', encoding='utf-8') as f:
-            labels_data = json.load(f)
-
-        return jsonify({"status": "success", "labels": labels_data})
-    except Exception as e:
-        logging.error("خطا در دریافت لیبل‌ها: %s", e)
-        return jsonify({"status": "error", "message": "خطا در دریافت لیبل‌ها."}), 500
 
 
 # --------------------- اجرای سرور ---------------------
