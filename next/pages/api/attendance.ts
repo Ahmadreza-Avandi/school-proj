@@ -62,7 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             TIME_FORMAT(s.endTime, '%H:%i:%s') as endTime,
             s.dayOfWeek
           FROM subject s
-          WHERE s.classId = ? AND s.dayOfWeek = ?
+          WHERE s.ClassId = ? AND s.dayOfWeek = ?
           ORDER BY s.startTime ASC
         `;
         
@@ -82,7 +82,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 u.nationalCode,
                 u.fullName,
                 c.name as className,
-                u.classId,
+                u.ClassId,
                 COALESCE(
                   a.id, 
                   (
@@ -129,7 +129,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 0 as present_count, 
                 0 as total_subjects
               FROM user u
-              JOIN class c ON u.classId = c.id
+              JOIN Class c ON u.ClassId = c.id
               JOIN subject s ON s.id = ?
               LEFT JOIN attendance a ON a.nationalCode = u.nationalCode 
                 AND a.jalali_date = ? 
@@ -241,7 +241,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     AND s.dayOfWeek = ?
                 ) as total_subjects
               FROM user u
-              JOIN class c ON u.classId = c.id
+              JOIN Class c ON u.ClassId = c.id
               WHERE u.classId = ? AND u.roleId = 3
             `;
             
@@ -287,7 +287,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const debugUsersQuery = `
             SELECT u.id, u.fullName, u.nationalCode, u.roleId, r.name as roleName, u.classId, c.name as className
             FROM user u
-            JOIN class c ON u.classId = c.id
+            JOIN Class c ON u.ClassId = c.id
             LEFT JOIN role r ON u.roleId = r.id
             WHERE u.classId = ?
           `;
@@ -368,7 +368,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const getUserQuery = `
           SELECT u.nationalCode, u.fullName, u.classId, c.name as className
           FROM user u
-          LEFT JOIN class c ON u.classId = c.id
+          LEFT JOIN Class c ON u.ClassId = c.id
           WHERE u.id = ?
         `;
         const [userRows]: any = await connection.execute(getUserQuery, [userId]);
