@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # faceDetectionWithCamera.py
 
+import time
 import cv2
 import numpy as np
 import mysql.connector
@@ -123,300 +124,19 @@ class CameraManager:
         پارامتر source می‌تواند عدد (مثلاً 0 برای وبکم) یا آدرس استریم (RTSP) باشد.
         """
         cap = cv2.VideoCapture(source)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
         cap.set(cv2.CAP_PROP_FPS, 15)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
-        # تشخیص اینکه آیا منبع، دوربین داخلی است یا خارجی
-            is_external = not (isinstance(source, int) and source == 0)
-            self.cameras.append({
-                'cap': cap,
-                'name': name,
-                'location': location,
-                'frame': None,
-                'is_external': is_external,
-                'last_frame_time': time.time()
-            })
-            logger.info("دوربین '%s' در '%s' فعال شد.", name, location)
-        else:
-            logger.error("خطا در باز کردن دوربین '%s'.", name)
-            cap.release()
-
-    def adjust_focal_distance(self, frame, zoom_factor=1.5):
-        """
-        شبیه‌سازی زوم دیجیتال برای دوربین‌های خارجی با بریدن مرکز تصویر.
-        """
-        h, w = frame.shape[:2]
-        new_w = int(w / zoom_factor)
-        new_h = int(h / zoom_factor)
-        x1 = (w - new_w) // 2
-        y1 = (h - new_h) // 2
-        cropped = frame[y1:y1+new_h, x1:x1+new_w]
-        adjusted = cv2.resize(cropped, (640, 480))
-        return adjusted
-
-    def process_faces(self, frame, location):
-        """
-        پردازش فریم:
-          - کاهش رزولوشن برای بهبود عملکرد.
-          - تبدیل به تصویر خاکستری.
-          - تشخیص چهره‌ها.
-          - در صورت کوچک بودن چهره (به علت فاصله از لنز) تصویر چهره بزرگ‌نمایی می‌شود.
-          - پیش‌بینی برچسب با استفاده از مدل آموزش‌دیده.
-          - ثبت حضور در صورت تشخیص با اطمینان کافی.
-        """
-        # کاهش رزولوشن برای بهبود عملکرد
-        frame_small = cv2.resize(frame, (320, 240))
-        gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-        
-        # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-        
-        # ضریب مقیاس برای تبدیل مختصات به فریم اصلی
-        scale_factor_x = frame.shape[1] / frame_small.shape[1]
-        scale_factor_y = frame.shape[0] / frame_small.shape[0]
-        
-        for (x, y, w, h) in faces:
-            # تبدیل مختصات به فریم اصلی
-            x_orig = int(x * scale_factor_x)
-            y_orig = int(y * scale_factor_y)
-            w_orig = int(w * scale_factor_x)
-            h_orig = int(h * scale_factor_y)
-            
-            cv2.rectangle(frame, (x_orig, y_orig), (x_orig+w_orig, y_orig+h_orig), (0, 255, 0), 2)
-            
-            # استخراج ناحیه چهره از تصویر اصلی برای دقت بیشتر در تشخیص
-            face_roi = cv2.cvtColor(frame[y_orig:y_orig+h_orig, x_orig:x_orig+w_orig], cv2.COLOR_BGR2GRAY)
-
-            # اگر چهره کوچک باشد، بزرگ‌نمایی می‌شود
-            if w_orig < 100 or h_orig < 100:
-                try:
-                    face_roi = cv2.resize(face_roi, (100, 100), interpolation=cv2.INTER_AREA)
-                except Exception as e:
-                    logger.error("خطا در بزرگنمایی تصویر چهره: %s", e)
-
-            if self.face_recognizer is not None:
-                try:
-                    # استاندارد کردن اندازه تصویر چهره برای تشخیص
-                    face_roi_std = cv2.resize(face_roi, (200, 200), interpolation=cv2.INTER_AREA)
-                    label, confidence = self.face_recognizer.predict(face_roi_std)
-                    
-                    # تنظیم آستانه دقت
-                    if confidence < 85:
-                        national_code = str(label)
-                        # استفاده از دیکشنری last_checkin برای جلوگیری از ثبت مکرر
-                        if national_code not in self.last_checkin:
-                            self.log_attendance(national_code, location)
-                            self.last_checkin[national_code] = datetime.now()
-                    else:
-                        logger.debug("چهره با دقت کافی شناسایی نشد (confidence: %s).", confidence)
-                except Exception as e:
-                    logger.error("خطا در پیش‌بینی چهره: %s", e)
-        
-        # تغییر اندازه فریم نهایی برای نمایش
-        return cv2.resize(frame, (640, 480))
-
-    def log_attendance(self, national_code, location):
-        """ثبت حضور دانش آموز در دیتابیس"""
-        if self.db is None:
-            logger.error("اتصال به دیتابیس برقرار نیست")
-            return
-        
-        now = datetime.now()
-        jalali_date = JalaliDateTime.now()
-        
-        try:
-            with self.db.cursor() as cursor:
-                # دریافت اطلاعات کاربر و کلاس
-                cursor.execute("""
-                    SELECT u.fullName, u.classId, c.name as className 
-                    FROM User u 
-                    LEFT JOIN Class c ON u.classId = c.id 
-                    WHERE u.nationalCode = %s
-                """, (national_code,))
-                
-                user_info = cursor.fetchone()
-                if not user_info:
-                    logger.error(f"کاربر با کد ملی {national_code} یافت نشد")
-                    return
-                    
-                full_name, class_id, class_name = user_info
-                
-                # تعیین روز هفته به فارسی
-                day_of_week = self.persian_days[jalali_date.weekday()]
-                
-                # تبدیل تاریخ جلالی به فرمت مورد نیاز
-                jalali_date_str = jalali_date.strftime("%Y/%m/%d")  # مثال: 1402/01/15
-                
-                # بررسی تکراری نبودن حضور در روز جاری
-                cursor.execute("""
-                    SELECT id FROM attendance 
-                    WHERE nationalCode = %s 
-                    AND gregorian_date = CURDATE()
-                """, (national_code,))
-                
-                attendance_record = cursor.fetchone()
-                if attendance_record:
-                    # آپدیت رکورد موجود
-                    cursor.execute("""
-                        UPDATE attendance 
-                        SET checkin_time = %s, 
-                            location = %s,
-                            status = 'present'
-                        WHERE id = %s
-                    """, (
-                        now.strftime('%H:%M:%S'),
-                        class_name or location,
-                        attendance_record[0]
-                    ))
-                    self.db.commit()
-                    logger.info(f"رکورد حضور برای {full_name} به‌روزرسانی شد")
-                else:
-                    # استفاده از نام کلاس به عنوان لوکیشن اگر موجود باشد
-                    actual_location = class_name if class_name else location
-                        
-                    # ثبت حضور جدید
-                    cursor.execute("""
-                        INSERT INTO attendance (
-                            nationalCode, 
-                            fullName,
-                            classId,
-                            className, 
-                            jalali_date,           -- تاریخ جلالی
-                            gregorian_date,        -- تاریخ میلادی
-                            checkin_time,
-                            location,
-                            dayOfWeek,
-                            status
-                        ) VALUES (%s, %s, %s, %s, %s, CURDATE(), %s, %s, %s, 'present')
-                    """, (
-                        national_code,
-                        full_name,
-                        class_id,
-                        class_name,
-                        jalali_date_str,          # تاریخ جلالی
-                        now.strftime('%H:%M:%S'), # زمان ورود
-                        actual_location,
-                        day_of_week
-                    ))
-                    
-                    self.db.commit()
-                    logger.info(f"حضور برای {full_name} در کلاس {class_name} ثبت شد")
-                
-                # آپدیت last_seen
-                self.update_last_seen(national_code, full_name, now, class_name or location)
-                
-        except mysql.connector.Error as err:
-            logger.error(f"خطای دیتابیس: {err}")
-            self.db.rollback()
-
-    def train_model_from_redis(self):
-        """آموزش مدل از داده‌های ذخیره شده در ردیس"""
-        try:
-            labels = []
-            faces = []
-            
-            # جمع‌آوری کلیدهای کاربران از ردیس
-            keys = self.redis_db.keys('*')
-            if not keys:
-                logger.warning("هیچ داده آموزشی در ردیس وجود ندارد")
-                return
-                
-            for key in keys:
-                data = json.loads(self.redis_db.get(key))
-                img_bytes = base64.b64decode(data['faceImage'])
-                np_arr = np.frombuffer(img_bytes, np.uint8)
-                img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
-                
-                # تغییر سایز تصویر برای بهینه‌سازی حافظه
-                img = cv2.resize(img, (200, 200), interpolation=cv2.INTER_AREA)
-                
-                faces.append(img)
-                labels.append(int(data['nationalCode']))
-            
-            # آموزش مدل و ذخیره
-            self.face_recognizer.train(faces, np.array(labels))
-            
-            # ایجاد پوشه trainer اگر وجود ندارد
-            os.makedirs("trainer", exist_ok=True)
-            self.face_recognizer.save("trainer/model.xml")
-            logger.info("مدل با %d تصویر از ردیس آموزش داده شد", len(faces))
-            
-            # بهینه‌سازی برای رزبری پای
-            cv2.ocl.setUseOpenCL(False)  # غیرفعال کردن OpenCL برای سازگاری بهتر
-            
-        except Exception as e:
-            logger.error("خطا در آموزش مدل: %s", e)
-            raise
-
-    def update_last_seen(self, national_code, full_name, timestamp, location):
-        """به‌روزرسانی آخرین وضعیت مشاهده کاربر"""
-        try:
-            jalali_datetime = JalaliDateTime.now().strftime("%Y/%m/%d %H:%M:%S")
-            
-            with self.db.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO last_seen 
-                    (nationalCode, fullName, checkin_time, location)
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                    fullName = VALUES(fullName),
-                    checkin_time = VALUES(checkin_time),
-                    location = VALUES(location)
-                """, (
-                    national_code,
-                    full_name,
-                    jalali_datetime,
-                    location
-                ))
-                self.db.commit()
-                logger.info(f"last_seen برای {full_name} به‌روزرسانی شد")
-        except mysql.connector.Error as err:
-            logger.error(f"خطا در به‌روزرسانی last_seen: {err}")
-            self.db.rollback()
-
-    def update_frames(self):
-        """
-        به‌روز رسانی فریم‌های هر دوربین:
-          - دریافت فریم از دوربین.
-          - اعمال تنظیم فاصله کانونی برای دوربین‌های خارجی.
-          - پردازش فریم جهت تشخیص چهره (فقط هر چند فریم یکبار).
-          - در صورت عدم دریافت فریم، استفاده از یک فریم سیاه.
-        """
-        // ... existing code ...
-        cap = cv2.VideoCapture(source)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        from threading import Thread
-        from collections import deque
-        import time
-
-        frame_buffer = deque(maxlen=2)
-        stop_event = False
-
-        def capture_thread():
-            nonlocal stop_event
-            while not stop_event:
-                ret, frame = cap.read()
-                if ret:
-                    frame_buffer.append(frame)
-                else:
-                    time.sleep(0.01)
-
-        thread = Thread(target=capture_thread, daemon=True)
-        thread.start()
-
+        is_external = not (isinstance(source, int) and source == 0)
+        self.cameras.append({
+            'cap': cap,
+            'name': name,
+            'location': location,
+            'frame': None,
+            'is_external': is_external,
+            'last_frame_time': time.time()
+        })
         if cap.isOpened():
-            self.cameras.append({
-                'cap': cap,
-                'thread': thread,
-                'frame_buffer': frame_buffer,
-                'stop_event': stop_event,
-                'name': name,
-                'location': location,
-                'frame': None,
-                'is_external': is_external,
-                'last_frame_time': time.time()
-            })
             logger.info("دوربین '%s' در '%s' فعال شد.", name, location)
         else:
             logger.error("خطا در باز کردن دوربین '%s'.", name)
@@ -442,49 +162,38 @@ class CameraManager:
           - تبدیل به تصویر خاکستری.
           - تشخیص چهره‌ها.
           - در صورت کوچک بودن چهره (به علت فاصله از لنز) تصویر چهره بزرگ‌نمایی می‌شود.
+          - افزایش کنتراست تصویر چهره با CLAHE.
           - پیش‌بینی برچسب با استفاده از مدل آموزش‌دیده.
           - ثبت حضور در صورت تشخیص با اطمینان کافی.
         """
-        # کاهش رزولوشن برای بهبود عملکرد
         frame_small = cv2.resize(frame, (320, 240))
         gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-        
-        # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
         faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-        
-        # ضریب مقیاس برای تبدیل مختصات به فریم اصلی
         scale_factor_x = frame.shape[1] / frame_small.shape[1]
         scale_factor_y = frame.shape[0] / frame_small.shape[0]
-        
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         for (x, y, w, h) in faces:
-            # تبدیل مختصات به فریم اصلی
             x_orig = int(x * scale_factor_x)
             y_orig = int(y * scale_factor_y)
             w_orig = int(w * scale_factor_x)
             h_orig = int(h * scale_factor_y)
-            
             cv2.rectangle(frame, (x_orig, y_orig), (x_orig+w_orig, y_orig+h_orig), (0, 255, 0), 2)
-            
-            # استخراج ناحیه چهره از تصویر اصلی برای دقت بیشتر در تشخیص
             face_roi = cv2.cvtColor(frame[y_orig:y_orig+h_orig, x_orig:x_orig+w_orig], cv2.COLOR_BGR2GRAY)
-
-            # اگر چهره کوچک باشد، بزرگ‌نمایی می‌شود
             if w_orig < 100 or h_orig < 100:
                 try:
                     face_roi = cv2.resize(face_roi, (100, 100), interpolation=cv2.INTER_AREA)
                 except Exception as e:
                     logger.error("خطا در بزرگنمایی تصویر چهره: %s", e)
-
+            # افزایش کنتراست تصویر چهره
+            face_roi = clahe.apply(face_roi)
             if self.face_recognizer is not None:
                 try:
-                    # استاندارد کردن اندازه تصویر چهره برای تشخیص
                     face_roi_std = cv2.resize(face_roi, (200, 200), interpolation=cv2.INTER_AREA)
                     label, confidence = self.face_recognizer.predict(face_roi_std)
-                    
-                    # تنظیم آستانه دقت
-                    if confidence < 85:
+                    # آستانه دقت پایین‌تر برای دوربین خارجی
+                    threshold = 75 if any(cam['is_external'] for cam in self.cameras if cam['location']==location) else 85
+                    if confidence < threshold:
                         national_code = str(label)
-                        # استفاده از دیکشنری last_checkin برای جلوگیری از ثبت مکرر
                         if national_code not in self.last_checkin:
                             self.log_attendance(national_code, location)
                             self.last_checkin[national_code] = datetime.now()
@@ -492,8 +201,6 @@ class CameraManager:
                         logger.debug("چهره با دقت کافی شناسایی نشد (confidence: %s).", confidence)
                 except Exception as e:
                     logger.error("خطا در پیش‌بینی چهره: %s", e)
-        
-        # تغییر اندازه فریم نهایی برای نمایش
         return cv2.resize(frame, (640, 480))
 
     def log_attendance(self, national_code, location):

@@ -38,15 +38,15 @@ function getPersianDayOfWeek(jalaliDateStr: string): string {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    const { classId, date, mode, attendanceFilter, subjectId } = req.query;
+    const { ClassId, date, mode, attendanceFilter, subjectId } = req.query;
     
     try {
       const connection = await mysql.createConnection(dbConfig.connectionString);
       
       // حالت نمایش بر اساس تاریخ و کلاس
-      if (classId && date) {
+      if (ClassId && date) {
         console.log("Received date from frontend:", date);
-        console.log("Received class ID:", classId);
+        console.log("Received class ID:", ClassId);
         console.log("Received subject ID:", subjectId);
         console.log("Attendance filter:", attendanceFilter);
         
@@ -66,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ORDER BY s.startTime ASC
         `;
         
-        const [subjects] = await connection.execute(subjectsQuery, [classId, calculatedDayOfWeek]);
+        const [subjects] = await connection.execute(subjectsQuery, [ClassId, calculatedDayOfWeek]);
         console.log("Found subjects:", subjects);
         
         // متغیرهای مورد نیاز برای کوئری - مقداردهی اولیه
@@ -134,7 +134,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               LEFT JOIN attendance a ON a.nationalCode = u.nationalCode 
                 AND a.jalali_date = ? 
                 AND a.subjectId = s.id
-              WHERE u.classId = ? 
+              WHERE u.ClassId = ? 
                 AND u.roleId = 3
             `;
             
@@ -144,7 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               jalaliDateFormat,
               subjectId, jalaliDateFormat, 
               subjectId, jalaliDateFormat, 
-              classId
+              ClassId
             ];
             
             if (attendanceFilter === 'present') {
@@ -159,8 +159,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 u.id as userId,
                 u.nationalCode,
                 u.fullName,
-                c.name as className,
-                u.classId,
+                c.name as ClassName,
+                u.ClassId,
                 (
                   SELECT id 
                   FROM attendance 
@@ -208,7 +208,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   LEFT JOIN attendance a ON a.nationalCode = u.nationalCode 
                     AND a.jalali_date = ? 
                     AND a.subjectId = s.id
-                  WHERE s.classId = ? 
+                  WHERE s.ClassId = ? 
                     AND s.dayOfWeek = ?
                 ) as subjects_attended,
                 (
@@ -218,7 +218,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     AND a.jalali_date = ? 
                     AND a.subjectId = s.id
                     AND a.status = 'present'
-                  WHERE s.classId = ? 
+                  WHERE s.ClassId = ? 
                     AND s.dayOfWeek = ?
                     AND (
                       a.id IS NOT NULL
@@ -237,12 +237,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 (
                   SELECT COUNT(*)
                   FROM subject s
-                  WHERE s.classId = ? 
+                  WHERE s.ClassId = ? 
                     AND s.dayOfWeek = ?
                 ) as total_subjects
               FROM user u
               JOIN Class c ON u.ClassId = c.id
-              WHERE u.classId = ? AND u.roleId = 3
+              WHERE u.ClassId = ? AND u.roleId = 3
             `;
             
             queryParams = [
@@ -251,15 +251,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               jalaliDateFormat,
               jalaliDateFormat,
               jalaliDateFormat,
-              classId,
+              ClassId,
               calculatedDayOfWeek,
               jalaliDateFormat,
-              classId,
+              ClassId,
               calculatedDayOfWeek,
               jalaliDateFormat,
-              classId,
+              ClassId,
               calculatedDayOfWeek,
-              classId
+              ClassId
             ];
             
             if (attendanceFilter === 'present') {
@@ -283,16 +283,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const [students] = await connection.execute(studentsQuery, queryParams);
           console.log(`Found ${(students as any[]).length} students`);
           
-          // لاگ کردن کاربران موجود در دیتابیس با classId مشابه
+          // لاگ کردن کاربران موجود در دیتابیس با ClassId مشابه
           const debugUsersQuery = `
-            SELECT u.id, u.fullName, u.nationalCode, u.roleId, r.name as roleName, u.classId, c.name as className
+            SELECT u.id, u.fullName, u.nationalCode, u.roleId, r.name as roleName, u.ClassId, c.name as className
             FROM user u
             JOIN Class c ON u.ClassId = c.id
             LEFT JOIN role r ON u.roleId = r.id
-            WHERE u.classId = ?
+            WHERE u.ClassId = ?
           `;
           
-          const [debugUsers] = await connection.execute(debugUsersQuery, [classId]);
+          const [debugUsers] = await connection.execute(debugUsersQuery, [ClassId]);
           console.log("All users in this class:", debugUsers);
           
           await connection.end();
@@ -322,7 +322,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
   } else if (req.method === 'PATCH') {
-    const { id, status, userId, nationalCode, fullName, classId, className, jalali_date, dayOfWeek, subjectId } = req.body;
+    const { id, status, userId, nationalCode, fullName, ClassId, className, jalali_date, dayOfWeek, subjectId } = req.body;
     
     console.log("PATCH request received:", {
       id, status, nationalCode, jalali_date, dayOfWeek, subjectId
@@ -361,12 +361,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // ابتدا اطلاعات کاربر را دریافت می‌کنیم اگر در body نباشد
       let userNationalCode = nationalCode;
       let userFullName = fullName;
-      let userClassId = classId;
+      let userClassId = ClassId;
       let userClassName = className;
       
       if (!userNationalCode || !userFullName) {
         const getUserQuery = `
-          SELECT u.nationalCode, u.fullName, u.classId, c.name as className
+          SELECT u.nationalCode, u.fullName, u.ClassId, c.name as className
           FROM user u
           LEFT JOIN Class c ON u.ClassId = c.id
           WHERE u.id = ?
@@ -376,7 +376,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (userRows.length > 0) {
           userNationalCode = userRows[0].nationalCode;
           userFullName = userRows[0].fullName;
-          userClassId = userRows[0].classId;
+          userClassId = userRows[0].ClassId;
           userClassName = userRows[0].className;
         } else {
           await connection.end();
@@ -435,7 +435,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // ایجاد رکورد جدید
           let insertQuery = `
             INSERT INTO attendance 
-            (nationalCode, fullName, classId, className, jalali_date, gregorian_date, checkin_time, location, dayOfWeek, status
+            (nationalCode, fullName, ClassId, className, jalali_date, gregorian_date, checkin_time, location, dayOfWeek, status
           `;
           
           if (subjectId) {
