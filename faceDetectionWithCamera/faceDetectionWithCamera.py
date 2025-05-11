@@ -14,13 +14,22 @@ import logging.handlers
 import json
 import base64
 
-# تنظیمات لاگینگ
+# تنظیمات لاگینگ - فقط نمایش در کنسول بدون ذخیره در فایل
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# حذف همه هندلرهای قبلی
+for handler in logger.handlers[::]:
+    logger.removeHandler(handler)
+
+# اضافه کردن فقط هندلر کنسول
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'))
+logger.addHandler(console_handler)
 
 # --------------------- کلاس مدیریت دوربین‌ها ---------------------
 class CameraManager:
@@ -86,7 +95,18 @@ class CameraManager:
             if not hasattr(cv2, 'face'):
                 raise AttributeError("ماژول cv2.face موجود نیست. لطفاً opencv-contrib-python را نصب کنید.")
             
-            self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            # تنظیم پارامترهای بهینه برای LBPH برای دقت بیشتر با تعداد افراد بیشتر
+            # - radius: شعاع بزرگتر برای استخراج ویژگی‌های بیشتر
+            # - neighbors: تعداد همسایه‌های بیشتر برای الگوهای دقیق‌تر
+            # - grid_x و grid_y: تقسیم‌بندی ریزتر تصویر برای جزئیات بیشتر
+            # - threshold: آستانه پایین‌تر برای تشخیص بهتر
+            self.face_recognizer = cv2.face.LBPHFaceRecognizer_create(
+                radius=2,           # پیش‌فرض: 1
+                neighbors=10,       # پیش‌فرض: 8
+                grid_x=10,          # پیش‌فرض: 8
+                grid_y=10,          # پیش‌فرض: 8
+                threshold=70        # پیش‌فرض: DBL_MAX
+            )
             model_path = "trainer/model.xml"
             
             # آموزش مدل از داده‌های ردیس در صورت وجود
@@ -102,20 +122,18 @@ class CameraManager:
             logger.error("خطا در مقداردهی مدل: %s", e)
             self.face_recognizer = None
 
-        # تنظیمات پیشرفته لاگ‌گیری
+        # تنظیم سطح لاگ‌گیری
         log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
         logger.setLevel(log_level)
-        file_handler = logging.handlers.RotatingFileHandler(
-            'attendance.log',
-            maxBytes=1024*1024*5,
-            backupCount=3,
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s'))
-        logger.addHandler(file_handler)
+        
+        # غیرفعال کردن لاگ فایل برای جلوگیری از اشغال فضای دیسک
+        # فقط لاگ‌های کنسول فعال هستند
 
-        # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 2 ساعت)
+        # دیکشنری جهت جلوگیری از ثبت مکرر حضور (به مدت 1.5 ساعت)
         self.last_checkin = {}
+        
+        # زمان آخرین پاکسازی دیکشنری last_checkin
+        self.last_cleanup = datetime.now()
 
     def add_camera(self, name, source, location):
         """
@@ -161,9 +179,12 @@ class CameraManager:
           - پیش‌بینی برچسب با استفاده از مدل آموزش‌دیده.
           - ثبت حضور در صورت تشخیص با اطمینان کافی.
         """
-        # کاهش رزولوشن برای بهبود عملکرد
-        frame_small = cv2.resize(frame, (320, 240))
+        # بهینه‌سازی برای رزبری پای: کاهش بیشتر رزولوشن برای بهبود عملکرد
+        frame_small = cv2.resize(frame, (240, 180))
         gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+        
+        # بهینه‌سازی برای رزبری پای: اعمال تکنیک کاهش نویز
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
         
         # استفاده از minSize کوچکتر جهت تشخیص چهره‌های دور
         faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(20, 20))
@@ -199,11 +220,38 @@ class CameraManager:
                     
                     # تنظیم آستانه دقت
                     if confidence < 85:
+                        # تبدیل برچسب عددی به کد ملی
+                        # توجه: در آموزش مدل، ممکن است از 10 رقم آخر کد ملی استفاده شده باشد
                         national_code = str(label)
-                        # استفاده از دیکشنری last_checkin برای جلوگیری از ثبت مکرر
-                        if national_code not in self.last_checkin:
-                            self.log_attendance(national_code, location)
-                            self.last_checkin[national_code] = datetime.now()
+                        
+                        # اعتبارسنجی کد ملی (انعطاف‌پذیر با طول‌های مختلف)
+                        if len(national_code) < 8 or len(national_code) > 12:
+                            logger.warning(f"کد ملی {national_code} با طول {len(national_code)} خارج از محدوده مجاز است (8 تا 12 رقم)")
+                            continue
+                            
+                        # اگر کد ملی در دیتابیس با طول بیشتری ذخیره شده، باید بررسی شود
+                        # این بخش برای سازگاری با کدهای ملی است که در آموزش مدل کوتاه شده‌اند
+                            
+                        # بررسی زمان آخرین ثبت حضور
+                        current_time = datetime.now()
+                        if national_code in self.last_checkin:
+                            time_diff = current_time - self.last_checkin[national_code]
+                            # اگر کمتر از 1.5 ساعت از آخرین ثبت حضور گذشته باشد، ثبت نمی‌کنیم
+                            if time_diff.total_seconds() < 5400:  # 1.5 ساعت = 5400 ثانیه
+                                continue
+                                
+                        # ثبت حضور و به‌روزرسانی زمان آخرین ثبت
+                        self.log_attendance(national_code, location)
+                        self.last_checkin[national_code] = current_time
+                        
+                        # پاکسازی دیکشنری last_checkin هر 1.5 ساعت برای مدیریت حافظه
+                        if (current_time - self.last_cleanup).total_seconds() > 5400:
+                            # حذف رکوردهای قدیمی‌تر از 1.5 ساعت
+                            expired_keys = [k for k, v in self.last_checkin.items() 
+                                           if (current_time - v).total_seconds() > 5400]
+                            for k in expired_keys:
+                                del self.last_checkin[k]
+                            self.last_cleanup = current_time
                     else:
                         logger.debug("چهره با دقت کافی شناسایی نشد (confidence: %s).", confidence)
                 except Exception as e:
@@ -212,11 +260,50 @@ class CameraManager:
         # تغییر اندازه فریم نهایی برای نمایش
         return cv2.resize(frame, (640, 480))
 
+    def match_national_code(self, national_code):
+        """تطبیق کد ملی با دیتابیس با در نظر گرفتن طول‌های مختلف"""
+        if self.db is None:
+            logger.error("اتصال به دیتابیس برقرار نیست")
+            return national_code
+            
+        try:
+            with self.db.cursor() as cursor:
+                # ابتدا جستجوی دقیق
+                cursor.execute("SELECT nationalCode FROM User WHERE nationalCode = %s", (national_code,))
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                    
+                # اگر کد ملی کوتاه شده باشد (10 رقم آخر)
+                if len(national_code) == 10:
+                    cursor.execute("SELECT nationalCode FROM User WHERE nationalCode LIKE %s", (f'%{national_code}',))
+                    result = cursor.fetchone()
+                    if result:
+                        logger.info(f"کد ملی {national_code} با {result[0]} در دیتابیس تطبیق داده شد")
+                        return result[0]
+                        
+                # اگر کد ملی در دیتابیس کوتاه شده باشد
+                if len(national_code) > 10:
+                    short_code = national_code[-10:]
+                    cursor.execute("SELECT nationalCode FROM User WHERE nationalCode = %s", (short_code,))
+                    result = cursor.fetchone()
+                    if result:
+                        logger.info(f"کد ملی {national_code} با {result[0]} در دیتابیس تطبیق داده شد")
+                        return result[0]
+                        
+                return national_code
+        except Exception as e:
+            logger.error(f"خطا در تطبیق کد ملی: {e}")
+            return national_code
+    
     def log_attendance(self, national_code, location):
         """ثبت حضور دانش آموز در دیتابیس"""
         if self.db is None:
             logger.error("اتصال به دیتابیس برقرار نیست")
             return
+        
+        # تطبیق کد ملی با دیتابیس
+        matched_code = self.match_national_code(national_code)
         
         now = datetime.now()
         jalali_date = JalaliDateTime.now()
@@ -229,7 +316,7 @@ class CameraManager:
                     FROM User u 
                     LEFT JOIN Class c ON u.classId = c.id 
                     WHERE u.nationalCode = %s
-                """, (national_code,))
+                """, (matched_code,))
                 
                 user_info = cursor.fetchone()
                 if not user_info:
@@ -299,8 +386,8 @@ class CameraManager:
                     self.db.commit()
                     logger.info(f"حضور برای {full_name} در کلاس {class_name} ثبت شد")
                 
-                # آپدیت last_seen
-                self.update_last_seen(national_code, full_name, now, class_name or location)
+                # آپدیت last_seen با استفاده از کد ملی تطبیق داده شده
+                self.update_last_seen(matched_code, full_name, now, class_name or location)
                 
         except mysql.connector.Error as err:
             logger.error(f"خطای دیتابیس: {err}")
@@ -312,6 +399,9 @@ class CameraManager:
             labels = []
             faces = []
             
+            # بهینه‌سازی برای رزبری پای
+            cv2.ocl.setUseOpenCL(False)  # غیرفعال کردن OpenCL برای سازگاری بهتر
+            
             # جمع‌آوری کلیدهای کاربران از ردیس
             keys = self.redis_db.keys('*')
             if not keys:
@@ -320,6 +410,13 @@ class CameraManager:
                 
             for key in keys:
                 data = json.loads(self.redis_db.get(key))
+                
+                # اعتبارسنجی کد ملی (انعطاف‌پذیر با طول‌های مختلف)
+                national_code = data.get('nationalCode', '')
+                if len(str(national_code)) < 8 or len(str(national_code)) > 12:
+                    logger.warning(f"کد ملی {national_code} در ردیس با طول {len(str(national_code))} خارج از محدوده مجاز است (8 تا 12 رقم)")
+                    continue
+                    
                 img_bytes = base64.b64decode(data['faceImage'])
                 np_arr = np.frombuffer(img_bytes, np.uint8)
                 img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
@@ -328,8 +425,24 @@ class CameraManager:
                 img = cv2.resize(img, (200, 200), interpolation=cv2.INTER_AREA)
                 
                 faces.append(img)
-                labels.append(int(data['nationalCode']))
+                # تبدیل ایمن کد ملی به عدد صحیح برای جلوگیری از خطا در مدل XML
+                # اگر کد ملی بیش از 10 رقم داشته باشد، فقط 10 رقم آخر استفاده می‌شود
+                # این کار از سرریز عددی در مدل XML جلوگیری می‌کند
+                try:
+                    if len(str(national_code)) > 10:
+                        # استفاده از 10 رقم آخر برای جلوگیری از سرریز عددی
+                        numeric_code = int(str(national_code)[-10:])
+                    else:
+                        numeric_code = int(national_code)
+                    labels.append(numeric_code)
+                except ValueError:
+                    logger.error(f"خطا در تبدیل کد ملی {national_code} به عدد صحیح")
+                    continue
             
+            if not faces:
+                logger.warning("هیچ داده معتبری برای آموزش مدل یافت نشد")
+                return
+                
             # آموزش مدل و ذخیره
             self.face_recognizer.train(faces, np.array(labels))
             
@@ -337,9 +450,6 @@ class CameraManager:
             os.makedirs("trainer", exist_ok=True)
             self.face_recognizer.save("trainer/model.xml")
             logger.info("مدل با %d تصویر از ردیس آموزش داده شد", len(faces))
-            
-            # بهینه‌سازی برای رزبری پای
-            cv2.ocl.setUseOpenCL(False)  # غیرفعال کردن OpenCL برای سازگاری بهتر
             
         except Exception as e:
             logger.error("خطا در آموزش مدل: %s", e)
@@ -351,20 +461,41 @@ class CameraManager:
             jalali_datetime = JalaliDateTime.now().strftime("%Y/%m/%d %H:%M:%S")
             
             with self.db.cursor() as cursor:
+                # ابتدا بررسی می‌کنیم آیا رکوردی برای این کاربر وجود دارد
                 cursor.execute("""
-                    INSERT INTO last_seen 
-                    (nationalCode, fullName, checkin_time, location)
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                    fullName = VALUES(fullName),
-                    checkin_time = VALUES(checkin_time),
-                    location = VALUES(location)
-                """, (
-                    national_code,
-                    full_name,
-                    jalali_datetime,
-                    location
-                ))
+                    SELECT COUNT(*) FROM last_seen 
+                    WHERE nationalCode = %s
+                """, (national_code,))
+                
+                record_exists = cursor.fetchone()[0] > 0
+                
+                if record_exists:
+                    # به‌روزرسانی رکورد موجود
+                    cursor.execute("""
+                        UPDATE last_seen 
+                        SET fullName = %s,
+                            checkin_time = %s,
+                            location = %s
+                        WHERE nationalCode = %s
+                    """, (
+                        full_name,
+                        jalali_datetime,
+                        location,
+                        national_code
+                    ))
+                else:
+                    # ایجاد رکورد جدید
+                    cursor.execute("""
+                        INSERT INTO last_seen 
+                        (nationalCode, fullName, checkin_time, location)
+                        VALUES (%s, %s, %s, %s)
+                    """, (
+                        national_code,
+                        full_name,
+                        jalali_datetime,
+                        location
+                    ))
+                
                 self.db.commit()
                 logger.info(f"last_seen برای {full_name} به‌روزرسانی شد")
         except mysql.connector.Error as err:
@@ -382,8 +513,8 @@ class CameraManager:
         # افزایش شمارنده فریم
         self.frame_counter += 1
         
-        # تعیین اینکه آیا در این فریم باید پردازش چهره انجام شود یا خیر
-        process_face_this_frame = (self.frame_counter % self.process_interval == 0)
+        # بهینه‌سازی برای رزبری پای: افزایش فاصله پردازش چهره به هر 8 فریم یکبار
+        process_face_this_frame = (self.frame_counter % 8 == 0)
         
         for cam in self.cameras:
             ret, frame = cam['cap'].read()
@@ -394,12 +525,16 @@ class CameraManager:
                 
                 # پردازش چهره فقط در فریم‌های مشخص
                 if process_face_this_frame:
-                    cam['frame'] = self.process_faces(frame, cam['location'])
+                    # بهینه‌سازی برای رزبری پای: کاهش رزولوشن قبل از پردازش
+                    frame_lowres = cv2.resize(frame, (320, 240))
+                    cam['frame'] = self.process_faces(frame_lowres, cam['location'])
                 else:
                     # در فریم‌های دیگر فقط تغییر اندازه بدون پردازش چهره
-                    cam['frame'] = cv2.resize(frame, (640, 480))
+                    # بهینه‌سازی برای رزبری پای: کاهش رزولوشن خروجی
+                    cam['frame'] = cv2.resize(frame, (480, 360))
             else:
-                cam['frame'] = np.zeros((480, 640, 3), dtype=np.uint8)
+                # بهینه‌سازی برای رزبری پای: کاهش رزولوشن فریم سیاه
+                cam['frame'] = np.zeros((360, 480, 3), dtype=np.uint8)
 
     def toggle_fullscreen(self, x, y):
         """
@@ -409,10 +544,13 @@ class CameraManager:
         if (current_time - self.last_click) * 1000 / cv2.getTickFrequency() < self.click_delay:
             return
 
+        # بهینه‌سازی برای رزبری پای: استفاده از رزولوشن کمتر
+        frame_width, frame_height = 480, 360
+        
         if self.active_cam == -1:
-            # تعیین دوربین کلیک‌شده بر اساس مختصات (با فرض ابعاد ثابت هر فریم 640x480 و فاصله 10 پیکسل)
-            col = x // (640 + 10)
-            row = y // (480 + 10)
+            # تعیین دوربین کلیک‌شده بر اساس مختصات (با فرض ابعاد جدید هر فریم 480x360 و فاصله 10 پیکسل)
+            col = x // (frame_width + 10)
+            row = y // (frame_height + 10)
             idx = row * self.grid_size[1] + col
             if idx < len(self.cameras):
                 self.active_cam = idx
@@ -426,22 +564,33 @@ class CameraManager:
           - در حالت تمام صفحه، فریم یک دوربین نمایش داده می‌شود.
           - در حالت گرید، فریم‌های تمام دوربین‌ها به صورت شبکه‌ای نمایش داده می‌شود.
         """
+        # بهینه‌سازی برای رزبری پای: استفاده از رزولوشن کمتر
+        frame_width, frame_height = 480, 360
+        
         if self.active_cam != -1:
             frame = self.cameras[self.active_cam]['frame']
+            # اطمینان از سازگاری ابعاد
+            if frame.shape[0] != frame_height or frame.shape[1] != frame_width:
+                frame = cv2.resize(frame, (frame_width, frame_height))
             cv2.imshow(self.window_name, frame)
         else:
             if not self.cameras:
-                black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                black_frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
                 cv2.imshow(self.window_name, black_frame)
                 return
 
             grid_frames = []
             for i in range(0, len(self.cameras), self.grid_size[1]):
-                row_frames = [cam['frame'] if cam['frame'] is not None
-                              else np.zeros((480, 640, 3), dtype=np.uint8)
-                              for cam in self.cameras[i:i+self.grid_size[1]]]
+                row_frames = []
+                for cam in self.cameras[i:i+self.grid_size[1]]:
+                    frame = cam['frame'] if cam['frame'] is not None else np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+                    # اطمینان از سازگاری ابعاد
+                    if frame.shape[0] != frame_height or frame.shape[1] != frame_width:
+                        frame = cv2.resize(frame, (frame_width, frame_height))
+                    row_frames.append(frame)
+                    
                 while len(row_frames) < self.grid_size[1]:
-                    row_frames.append(np.zeros((480, 640, 3), dtype=np.uint8))
+                    row_frames.append(np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
                 grid_frames.append(np.hstack(row_frames))
             final_grid = np.vstack(grid_frames[:self.grid_size[0]])
             cv2.imshow(self.window_name, final_grid)
@@ -455,8 +604,8 @@ def main():
     # مثال اضافه کردن دوربین خارجی (در صورت وجود):
     #manager.add_camera(" 12 مکا", "rtsp://admin:@192.168.1.168:80/ch0_0.264", "12 مکا")
 
-    # زمان‌بندی پاکسازی دیکشنری حضور (هر 2 ساعت) جهت جلوگیری از ثبت مکرر
-    schedule.every(2).hours.do(manager.last_checkin.clear)
+    # زمان‌بندی پاکسازی دیکشنری حضور (هر 1.5 ساعت) جهت جلوگیری از ثبت مکرر
+    schedule.every(90).minutes.do(manager.last_checkin.clear)
 
     # تنظیم رویداد ماوس برای تغییر حالت نمایش (دابل کلیک)
     def mouse_handler(event, x, y, flags, param):

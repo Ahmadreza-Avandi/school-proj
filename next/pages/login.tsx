@@ -42,7 +42,7 @@ const LoginForm: React.FC = () => {
   const onSubmit = async (data: LoginInputs) => {
     setLoading(true);
     try {
-      const response = await axios.post('https://a.zeroshopconnect.ir/python-api/login', data);
+      const response = await axios.post('https://a.zeroshopconnect.ir/api/login', data);
       
       interface LoginResponse {
         access_token: string;
