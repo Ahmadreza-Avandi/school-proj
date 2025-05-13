@@ -1,0 +1,12 @@
+[Unit]
+Description=Face Detection Service
+After=network.target
+
+[Service]
+WorkingDirectory=/home/pi/school-proj/faceDetectionWithCamera
+ExecStart=/usr/bin/python3 /home/pi/school-proj/faceDetectionWithCamera/faceDetectionWithCamera.py
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

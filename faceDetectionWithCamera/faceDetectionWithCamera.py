@@ -451,9 +451,9 @@ def main():
     manager = CameraManager()
 
     # اضافه کردن دوربین‌ها:
-    manager.add_camera("دوربین لپتاپ", 0, "لپتاپ")
+    #manager.add_camera("دوربین لپتاپ", 0, "لپتاپ")
     # مثال اضافه کردن دوربین خارجی (در صورت وجود):
-    #manager.add_camera(" 12 مکا", "rtsp://admin:@192.168.1.168:80/ch0_0.264", "12 مکا")
+    manager.add_camera(" 12 مکا", "rtsp://admin:@192.168.1.168:80/ch0_0.264", "12 مکا")
 
     # زمان‌بندی پاکسازی دیکشنری حضور (هر 2 ساعت) جهت جلوگیری از ثبت مکرر
     schedule.every(2).hours.do(manager.last_checkin.clear)
