@@ -38,7 +38,7 @@ function getPersianDayOfWeek(jalaliDateStr: string): string {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    const { ClassId: classId, date, mode, attendanceFilter, subjectId } = req.query;
+    const { classId, date, mode, attendanceFilter, subjectId } = req.query;
     
     try {
       const connection = await mysql.createConnection(dbConfig.connectionString);
@@ -322,7 +322,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
   } else if (req.method === 'PATCH') {
-    const { id, status, userId, nationalCode, fullName, ClassId: classId, className, jalali_date, dayOfWeek, subjectId } = req.body;
+    const { id, status, userId, nationalCode, fullName, classId, className, jalali_date, dayOfWeek, subjectId } = req.body;
     
     console.log("PATCH request received:", {
       id, status, nationalCode, jalali_date, dayOfWeek, subjectId
