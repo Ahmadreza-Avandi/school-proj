@@ -185,7 +185,17 @@ npm run dev
 
 ### توسعه سرویس تشخیص چهره (Python/Flask)
 
-1. وارد دایرکتوری faceDetectionWithCamera شوید:
+## راه‌اندازی و اجرای پروژه تشخیص چهره با دوربین
+
+### پیش‌نیازها
+
+- Python 3.6 یا بالاتر
+- pip
+- دسترسی به اینترنت برای نصب وابستگی‌ها
+
+### مراحل نصب و راه‌اندازی
+
+1. وارد دایرکتوری `faceDetectionWithCamera` شوید:
 ```bash
 cd faceDetectionWithCamera
 ```
@@ -193,21 +203,30 @@ cd faceDetectionWithCamera
 2. یک محیط مجازی ایجاد کنید:
 ```bash
 python -m venv venv
-source venv/bin/activate  # در لینوکس/مک
-# یا
-venv\Scripts\activate  # در ویندوز
 ```
 
-3. وابستگی‌ها را نصب کنید:
+3. محیط مجازی را فعال کنید:
+- در ویندوز:
+```bash
+venv\Scripts\activate
+```
+- در لینوکس/مک:
+```bash
+source venv/bin/activate
+```
+
+4. وابستگی‌ها را نصب کنید:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. سرویس را اجرا کنید:
+5. سرویس را اجرا کنید:
 ```bash
 flask run --debug
 ```
 
-## مجوز و لایسنس
+### نکات و پیکربندی‌ها
 
-این پروژه تحت مجوز MIT منتشر شده است. 
+- اطمینان حاصل کنید که پورت 5000 در سیستم شما باز است.
+- در صورت نیاز به تغییر پورت، فایل `get-face-data.py` را ویرایش کنید.
+- برای اجرای صحیح، مطمئن شوید که تمام وابستگی‌ها به درستی نصب شده‌اند.

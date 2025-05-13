@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         c.name as className,
         u.fullName as teacherName
       FROM subject s
-      LEFT JOIN class c ON s.classId = c.id
+      LEFT JOIN Class c ON s.classId = c.id
       LEFT JOIN user u ON s.teacherId = u.id
       WHERE s.classId = ? AND s.dayOfWeek = ?
       ORDER BY s.startTime ASC
@@ -50,4 +50,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       error: error instanceof Error ? error.message : 'Unknown error' 
     });
   }
-} 
+}
