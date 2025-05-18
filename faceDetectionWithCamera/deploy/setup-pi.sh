@@ -42,6 +42,6 @@ pip3 install -r ../requirements.txt
 
 # تنظیم مجوزهای لازم
 sudo usermod -a -G video $USER
-chmod +x ../face_detection.py
+chmod +x ../faceDetectionWithCamera.py
 
 echo 'نصب با موفقیت انجام شد! سرویس سیستم با دستور زیر قابل فعال سازی است:\nsudo systemctl enable face-detection.service'

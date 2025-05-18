@@ -10,7 +10,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 declare global {
   namespace NodeJS {
     interface ProcessEnv {
-      NODE_ENV: 'development' | 'production';
+      NODE_ENV: 'development' | 'production' | 'test';
     }
   }
 }
@@ -19,10 +19,10 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
-// مسیر گواهینامه‌ها
+// مسیر گواهینامه‌ها (با فایل‌های واقعی در archive)
 const httpsOptions = {
-  key: fs.existsSync('/certs/privkey.pem') ? fs.readFileSync('/certs/privkey.pem') : '',
-  cert: fs.existsSync('/certs/fullchain.pem') ? fs.readFileSync('/certs/fullchain.pem') : '',
+  key: fs.existsSync('/certs/privkey1.pem') ? fs.readFileSync('/certs/privkey1.pem') : '',
+  cert: fs.existsSync('/certs/fullchain1.pem') ? fs.readFileSync('/certs/fullchain1.pem') : '',
 };
 
 app.prepare().then(() => {
@@ -38,7 +38,7 @@ app.prepare().then(() => {
   }));
 
   // همه درخواست‌های دیگر را به Next.js ارسال می‌کنیم
-  server.all('*', (req, res) => {
+  server.all('*', (req: express.Request, res: express.Response) => {
     return handle(req, res);
   });
 
@@ -68,4 +68,4 @@ app.prepare().then(() => {
       console.log('❌ Running without SSL on http://localhost:3000');
     });
   }
-}); 
+});
