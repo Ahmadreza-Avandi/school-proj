@@ -14,17 +14,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # نصب کتابخانه‌های اصلی بدون نیاز به dlib
-RUN pip install --no-cache-dir flask==2.3.3 \
+RUN pip install --no-cache-dir --disable-pip-version-check \
+    flask==2.3.3 \
     flask-cors==4.0.0 \
     redis==4.6.0 \
     numpy==1.23.5 \
-    opencv-contrib-python-headless \
+    opencv-contrib-python-headless==4.11.0.86 \
     persiantools==3.0.1 \
     pytz==2023.3 \
     requests==2.31.0 \
     pillow==10.0.1 \
     boto3==1.28.38 \
     cryptography==41.0.3
+
 
 # ایجاد پوشه‌های مورد نیاز
 RUN mkdir -p trainer labels assets/face_detection data
