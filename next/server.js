@@ -17,6 +17,7 @@ const httpsOptions = {
   cert: fs.existsSync('/certs/fullchain.pem') ? fs.readFileSync('/certs/fullchain.pem') : '',
 };
 
+
 app.prepare().then(() => {
   const server = express();
   
