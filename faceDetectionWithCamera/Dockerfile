@@ -4,14 +4,15 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # نصب ابزارهای موردنیاز برای OpenCV
-RUN apt-get update && apt-get install -y --no-install-recommends \
+apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgl1-mesa-glx \
+    libgl1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
 
 # نصب کتابخانه‌های اصلی بدون نیاز به dlib
 RUN pip install --no-cache-dir --disable-pip-version-check \
