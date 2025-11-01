@@ -1,4 +1,4 @@
-version: '3'
+    version: '3.8'
 
 services:
   # سرویس دیتابیس MySQL
@@ -13,7 +13,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./mydatabase\ \(3\).sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
     networks:
       - app-network
@@ -35,7 +35,7 @@ services:
       - app-network
     volumes:
       - redis_data:/data
-    command: redis-server --replicaof no one
+    command: redis-server --appendonly yes
 
   # سرویس Nest.js (بک‌اند)
   nestjs:
@@ -60,13 +60,7 @@ services:
     networks:
       - app-network
     command: >
-      sh -c "sleep 10 && npx prisma migrate deploy && node dist/main.js"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.nestjs.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/api`)"
-      - "traefik.http.middlewares.nestjs-strip.stripprefix.prefixes=/api"
-      - "traefik.http.routers.nestjs.middlewares=nestjs-strip"
-      - "traefik.http.services.nestjs.loadbalancer.server.port=3001"
+      sh -c "sleep 15 && npx prisma migrate deploy && node dist/main.js"
 
   # سرویس Next.js (فرانت‌اند)
   nextjs:
@@ -74,7 +68,7 @@ services:
       context: ./next
       dockerfile: Dockerfile
     ports:
-      - "3000:3000" # فقط پورت 3000 - Nginx مدیریت SSL رو انجام می‌ده
+      - "3000:3000"
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
@@ -86,7 +80,6 @@ services:
       - pythonserver
     networks:
       - app-network
-    # حذف volume برای certs چون Nginx مدیریت می‌کنه
 
   # سرویس Python
   pythonserver:
@@ -120,16 +113,11 @@ services:
       - PMA_HOST=mysql
       - PMA_USER=root
       - PMA_PASSWORD=rootpassword
+      - PMA_ABSOLUTE_URI=https://sch.ahmadreza-avandi.ir/phpmyadmin/
     depends_on:
       - mysql
     networks:
       - app-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.phpmyadmin.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/phpmyadmin`)"
-      - "traefik.http.middlewares.phpmyadmin-strip.stripprefix.prefixes=/phpmyadmin"
-      - "traefik.http.routers.phpmyadmin.middlewares=phpmyadmin-strip"
-      - "traefik.http.services.phpmyadmin.loadbalancer.server.port=80"
 
   # سرویس Redis Commander
   redis-commander:
@@ -146,34 +134,6 @@ services:
       - redis
     networks:
       - app-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.redis-commander.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/redis-commander`)"
-
-  # سرویس Traefik برای مدیریت مسیرها
-  traefik:
-    image: traefik:v2.9
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
-    ports:
-      - "8080:8080" # داشبورد Traefik
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
-    networks:
-      - app-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/traefik`)"
-      - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=traefik-strip"
-      - "traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik"
 
 networks:
   app-network:
