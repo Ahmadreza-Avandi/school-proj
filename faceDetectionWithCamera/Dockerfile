@@ -12,22 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# نصب پکیج‌ها با نسخه‌های سازگار (از wheel های از پیش کامپایل شده استفاده می‌شود)
-RUN pip install --no-cache-dir \
-    flask==3.0.0 \
-    flask-cors==4.0.0 \
-    redis==5.0.1 \
-    numpy==1.26.2 \
-    opencv-contrib-python-headless==4.8.1.78 \
-    persiantools==4.1.1 \
-    pytz==2024.1 \
-    requests==2.31.0 \
-    pillow==10.1.0 \
-    boto3==1.34.0 \
-    cryptography==41.0.7
-
 # ایجاد پوشه‌های مورد نیاز
 RUN mkdir -p trainer labels assets/face_detection data
+
+# کپی requirements و نصب پکیج‌ها (برای استفاده از cache بهتر)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # کپی فایل‌های موردنیاز
 COPY get-face-data.py .
