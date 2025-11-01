@@ -2,8 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# نصب ابزارهای موردنیاز برای OpenCV
+# نصب ابزارهای موردنیاز برای OpenCV و ساخت پکیج‌ها
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -12,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-
-
+# اطمینان از اینکه setuptools و wheel نصبه (برای ساخت numpy و opencv)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # نصب کتابخانه‌های اصلی بدون نیاز به dlib
 RUN pip install --no-cache-dir --disable-pip-version-check \
@@ -28,7 +30,6 @@ RUN pip install --no-cache-dir --disable-pip-version-check \
     pillow==10.0.1 \
     boto3==1.28.38 \
     cryptography==41.0.3
-
 
 # ایجاد پوشه‌های مورد نیاز
 RUN mkdir -p trainer labels assets/face_detection data
@@ -47,4 +48,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
 
 # اجرای اپلیکیشن
-CMD ["flask", "run", "--host=0.0.0.0"] 
+CMD ["flask", "run", "--host=0.0.0.0"]
