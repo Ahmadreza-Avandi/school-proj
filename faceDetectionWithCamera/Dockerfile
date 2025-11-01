@@ -1,35 +1,30 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# نصب ابزارهای موردنیاز برای OpenCV و ساخت پکیج‌ها
+# فقط کتابخانه‌های runtime موردنیاز OpenCV (بدون build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
+    libgomp1 \
     libgl1 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# اطمینان از اینکه setuptools و wheel نصبه (برای ساخت numpy و opencv)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# نصب کتابخانه‌های اصلی بدون نیاز به dlib
-RUN pip install --no-cache-dir --disable-pip-version-check \
-    flask==2.3.3 \
+# نصب پکیج‌ها با نسخه‌های سازگار (از wheel های از پیش کامپایل شده استفاده می‌شود)
+RUN pip install --no-cache-dir \
+    flask==3.0.0 \
     flask-cors==4.0.0 \
-    redis==4.6.0 \
-    numpy==1.23.5 \
-    opencv-contrib-python-headless==4.11.0.86 \
-    persiantools==3.0.1 \
-    pytz==2023.3 \
+    redis==5.0.1 \
+    numpy==1.26.2 \
+    opencv-contrib-python-headless==4.8.1.78 \
+    persiantools==4.1.1 \
+    pytz==2024.1 \
     requests==2.31.0 \
-    pillow==10.0.1 \
-    boto3==1.28.38 \
-    cryptography==41.0.3
+    pillow==10.1.0 \
+    boto3==1.34.0 \
+    cryptography==41.0.7
 
 # ایجاد پوشه‌های مورد نیاز
 RUN mkdir -p trainer labels assets/face_detection data
