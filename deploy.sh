@@ -142,8 +142,23 @@ fi
 # ۷. بیلد و اجرای Docker Containers
 print_header "۵. بیلد و اجرای Docker Containers"
 
-print_info "در حال بیلد containers (ممکن است چند دقیقه طول بکشد)..."
-docker-compose build --parallel
+# بررسی اتصال به Docker Hub
+print_info "بررسی اتصال به Docker Hub..."
+if ! docker pull hello-world &> /dev/null; then
+    print_warning "مشکل در اتصال به Docker Hub - استفاده از cache محلی"
+    print_info "در حال بیلد با استفاده از cache..."
+    docker-compose build --parallel || {
+        print_error "بیلد با خطا مواجه شد. در حال تلاش مجدد..."
+        sleep 10
+        docker-compose build || exit 1
+    }
+else
+    print_info "در حال بیلد containers (ممکن است چند دقیقه طول بکشد)..."
+    docker-compose build --parallel || {
+        print_warning "بیلد موازی با خطا مواجه شد. تلاش مجدد به صورت تک به تک..."
+        docker-compose build || exit 1
+    }
+fi
 
 print_success "بیلد با موفقیت انجام شد"
 
