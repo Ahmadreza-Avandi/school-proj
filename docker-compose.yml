@@ -1,4 +1,4 @@
-    version: '3.8'
+version: '3.8'
 
 services:
   # سرویس دیتابیس MySQL
@@ -13,7 +13,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./mydatabase\ \(3\).sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - "./mydatabase (3).sql:/docker-entrypoint-initdb.d/init.sql:ro"
     restart: unless-stopped
     networks:
       - app-network

@@ -1,4 +1,4 @@
-import { createServer } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import next from 'next';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -8,11 +8,10 @@ const handle = app.getRequestHandler();
 const port = process.env.PORT || 3000;
 
 app.prepare().then(() => {
-  98
-  createServer((req, res) => {
+  createServer((req: IncomingMessage, res: ServerResponse) => {
     handle(req, res);
   }).listen(port, () => {
     console.log(`🚀 Next.js server running on http://localhost:${port}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV}`);
+    console.log(`� Enxvironment: ${process.env.NODE_ENV}`);
   });
 });

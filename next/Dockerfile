@@ -33,16 +33,16 @@ RUN npm install --production --force
 # کپی فایل‌های build از مرحله قبلی
 COPY --from=builder /usr/src/app/.next ./.next
 COPY --from=builder /usr/src/app/public ./public
-COPY --from=builder /usr/src/app/next.config.js ./
+COPY --from=builder /usr/src/app/next.config.js* ./
 
 # کپی server.ts برای اجرا
 COPY server.ts ./
 
 # نصب tsx برای اجرای TypeScript
-RUN npm install -g tsx
+RUN npm install tsx
 
 # پورت 3000 - Nginx مدیریت SSL رو انجام می‌ده
 EXPOSE 3000
 
 # دستور اجرای برنامه
-CMD ["npm", "start"]
+CMD ["npx", "tsx", "server.ts"]
