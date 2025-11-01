@@ -74,9 +74,7 @@ services:
       context: ./next
       dockerfile: Dockerfile
     ports:
-      - "80:80"     # HTTP برای ریدایرکت به HTTPS
-      - "443:443"   # HTTPS
-      - "3000:3000" # برای دسترسی مستقیم در توسعه
+      - "3000:3000" # فقط پورت 3000 - Nginx مدیریت SSL رو انجام می‌ده
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
@@ -88,9 +86,7 @@ services:
       - pythonserver
     networks:
       - app-network
-    volumes:
-      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
-    # اسکریپت سفارشی در Dockerfile تنظیم شده است
+    # حذف volume برای certs چون Nginx مدیریت می‌کنه
 
   # سرویس Python
   pythonserver:
@@ -113,14 +109,7 @@ services:
       - MYSQL_USER=user
       - MYSQL_PASSWORD=userpassword
       - MYSQL_DATABASE=mydatabase
-    volumes:
-      - /etc/letsencrypt/archive/a.zeroshopconnect.ir:/certs
     command: ["flask", "run", "--host=0.0.0.0"]
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pythonserver.rule=Host(`a.zeroshopconnect.ir`) && PathPrefix(`/python-api`)"
-      - "traefik.http.middlewares.pythonserver-strip.stripprefix.prefixes=/python-api"
-      - "traefik.http.routers.pythonserver.middlewares=pythonserver-strip"
 
   # سرویس phpMyAdmin
   phpmyadmin:

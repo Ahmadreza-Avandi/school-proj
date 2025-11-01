@@ -16,11 +16,8 @@ COPY . .
 # ساخت برنامه Next.js
 RUN npm run build
 
-# ایجاد دایرکتوری برای گواهی‌نامه‌های SSL
-RUN mkdir -p /certs
-
-# پورت‌ها
-EXPOSE 80 443 3000
+# فقط پورت 3000 - Nginx مدیریت SSL رو انجام می‌ده
+EXPOSE 3000
 
 # دستور اجرای برنامه با استفاده از اسکریپت سفارشی
 CMD ["npm", "run", "server"]
